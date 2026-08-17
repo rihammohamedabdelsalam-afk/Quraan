@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 
 import { supabase } from '../lib/supabase';
 
@@ -25,6 +25,7 @@ import AppointmentCard from '../components/AppointmentCard';
 
 export default function StudentProfile() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
 
   const [student, setStudent] = useState<Student | null>(null);
   const [cycle, setCycle] = useState<LessonCycle | null>(null);
@@ -39,6 +40,7 @@ export default function StudentProfile() {
 
   // ==========================================================
   // Student editing
+  // ملاحظة: الملاحظات تم حذفها من تعديل البيانات الأساسية
   // ==========================================================
 
   const [editingStudent, setEditingStudent] = useState(false);
@@ -47,8 +49,6 @@ export default function StudentProfile() {
   const [studentName, setStudentName] = useState('');
   const [studentAge, setStudentAge] = useState('');
   const [studentPhone, setStudentPhone] = useState('');
-  const [studentNotes, setStudentNotes] = useState('');
-  const [studentChangeNote, setStudentChangeNote] = useState('');
 
   // ==========================================================
   // Delete student
@@ -77,11 +77,8 @@ export default function StudentProfile() {
   const [editingSchedule, setEditingSchedule] = useState(false);
   const [savingSchedule, setSavingSchedule] = useState(false);
 
-  const [scheduleDraft, setScheduleDraft] = useState<
-    StudentSchedule[]
-  >([]);
-
-  const [scheduleChangeNote, setScheduleChangeNote] = useState('');
+  const [scheduleDraft, setScheduleDraft] =
+    useState<StudentSchedule[]>([]);
 
   // ==========================================================
   // Load
@@ -299,14 +296,14 @@ export default function StudentProfile() {
     if (!student) return;
 
     setStudentName(student.name);
+
     setStudentAge(
       student.age !== null
         ? String(student.age)
         : ''
     );
+
     setStudentPhone(student.phone ?? '');
-    setStudentNotes(student.notes ?? '');
-    setStudentChangeNote('');
 
     setEditingStudent(true);
     setError(null);
@@ -320,7 +317,6 @@ export default function StudentProfile() {
     if (savingStudent) return;
 
     setEditingStudent(false);
-    setStudentChangeNote('');
   }
 
   // ==========================================================
@@ -355,24 +351,6 @@ export default function StudentProfile() {
         return;
       }
 
-      let finalNotes =
-        studentNotes.trim() || null;
-
-      // ملاحظة التعديل اختيارية.
-      // لا نغير ملاحظات الطالب الأصلية إذا لم
-      // يكتب المستخدم شيئًا في خانة الملاحظة.
-      if (studentChangeNote.trim()) {
-        const timestamp =
-          new Date().toLocaleString('ar-EG');
-
-        const changeText =
-          `[تعديل ${timestamp}] ${studentChangeNote.trim()}`;
-
-        finalNotes = finalNotes
-          ? `${finalNotes}\n${changeText}`
-          : changeText;
-      }
-
       const { error: updateError } =
         await supabase
           .from('students')
@@ -381,7 +359,6 @@ export default function StudentProfile() {
             age: ageValue,
             phone:
               studentPhone.trim() || null,
-            notes: finalNotes,
           })
           .eq('id', id);
 
@@ -390,7 +367,6 @@ export default function StudentProfile() {
       }
 
       setEditingStudent(false);
-      setStudentChangeNote('');
 
       await load();
     } catch (err) {
@@ -439,8 +415,7 @@ export default function StudentProfile() {
         throw deleteError;
       }
 
-      // الرجوع للصفحة السابقة بعد الحذف.
-      window.history.back();
+      navigate(-1);
     } catch (err) {
       setError(
         err instanceof Error
@@ -703,7 +678,6 @@ export default function StudentProfile() {
       }))
     );
 
-    setScheduleChangeNote('');
     setEditingSchedule(true);
     setError(null);
   }
@@ -717,7 +691,6 @@ export default function StudentProfile() {
 
     setEditingSchedule(false);
     setScheduleDraft([]);
-    setScheduleChangeNote('');
   }
 
   // ==========================================================
@@ -792,14 +765,14 @@ export default function StudentProfile() {
         throw error;
       }
 
-      await load();
-
       setScheduleDraft((current) =>
         current.filter(
           (item) =>
             item.id !== scheduleId
         )
       );
+
+      await load();
     } catch (err) {
       setError(
         err instanceof Error
@@ -853,7 +826,7 @@ export default function StudentProfile() {
       }
 
       setEditingSchedule(false);
-      setScheduleChangeNote('');
+      setScheduleDraft([]);
 
       await load();
     } catch (err) {
@@ -982,11 +955,11 @@ export default function StudentProfile() {
           >
             <div>
               <h2 className="font-extrabold text-moss-700">
-                تعديل بيانات الطالب
+                تعديل البيانات الأساسية
               </h2>
 
               <p className="text-xs text-ink/50 mt-1">
-                يمكنك تعديل البيانات الأساسية، والملاحظات اختيارية.
+                يمكنك تعديل الاسم والسن ورقم الهاتف.
               </p>
             </div>
 
@@ -1044,45 +1017,6 @@ export default function StudentProfile() {
                   disabled={savingStudent}
                 />
               </div>
-            </div>
-
-            <div>
-              <label className="label">
-                ملاحظات الطالب
-              </label>
-
-              <textarea
-                className="input min-h-24"
-                value={studentNotes}
-                onChange={(e) =>
-                  setStudentNotes(
-                    e.target.value
-                  )
-                }
-                disabled={savingStudent}
-                placeholder="ملاحظات عن الطالب..."
-              />
-            </div>
-
-            <div>
-              <label className="label">
-                سبب التعديل / ملاحظة
-                <span className="text-ink/40 mr-1">
-                  (اختياري)
-                </span>
-              </label>
-
-              <textarea
-                className="input min-h-20"
-                value={studentChangeNote}
-                onChange={(e) =>
-                  setStudentChangeNote(
-                    e.target.value
-                  )
-                }
-                disabled={savingStudent}
-                placeholder="مثال: تم تغيير رقم الهاتف بناءً على طلب ولي الأمر..."
-              />
             </div>
 
             <div className="flex gap-2 flex-wrap">
@@ -1621,31 +1555,6 @@ export default function StudentProfile() {
                 )
               )}
 
-              <div>
-                <label className="label">
-                  سبب تعديل الجدول / ملاحظة
-                  <span className="text-ink/40 mr-1">
-                    (اختياري)
-                  </span>
-                </label>
-
-                <textarea
-                  className="input min-h-20"
-                  value={
-                    scheduleChangeNote
-                  }
-                  onChange={(e) =>
-                    setScheduleChangeNote(
-                      e.target.value
-                    )
-                  }
-                  disabled={
-                    savingSchedule
-                  }
-                  placeholder="مثال: تم تغيير موعد الاثنين بناءً على طلب الطالب..."
-                />
-              </div>
-
               <div className="flex gap-2 flex-wrap">
                 <button
                   type="button"
@@ -2037,6 +1946,8 @@ function LessonRow({
     </div>
   );
 }
+
+
 // ============================================================
 // Lesson Status Pill
 // ============================================================
