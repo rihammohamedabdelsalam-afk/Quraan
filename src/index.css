@@ -1,35 +1,46 @@
-:root {
-  font-family: Tahoma, sans-serif;
-  color: #1f2937;
-  background: #f8fafc;
-  line-height: 1.5;
-  font-weight: 400;
-}
+@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&family=Tajawal:wght@400;500;700&display=swap');
 
-* {
-  box-sizing: border-box;
-}
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
 html, body, #root {
-  margin: 0;
-  min-height: 100%;
-  min-height: 100vh;
+  height: 100%;
 }
 
 body {
-  min-height: 100vh;
-  display: grid;
-  place-items: center;
+  background-color: #F6F4EE;
+  color: #1F2A24;
 }
 
-main {
-  max-width: 760px;
-  padding: 2rem;
-  background: white;
-  border-radius: 16px;
-  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+.card {
+  @apply bg-white rounded-2xl border border-moss-100 shadow-sm;
 }
 
-ul {
-  padding-right: 1.25rem;
+.btn {
+  @apply inline-flex items-center justify-center rounded-xl px-4 py-2 text-sm font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
+}
+
+.btn-primary {
+  @apply btn bg-moss-600 text-white hover:bg-moss-700;
+}
+
+.btn-secondary {
+  @apply btn bg-moss-50 text-moss-700 hover:bg-moss-100;
+}
+
+.btn-clay {
+  @apply btn bg-clay-500 text-white hover:bg-clay-400;
+}
+
+.input {
+  @apply w-full rounded-xl border border-moss-100 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-moss-300;
+}
+
+.label {
+  @apply block text-xs font-bold text-ink/60 mb-1;
+}
+
+.pill {
+  @apply inline-flex items-center rounded-full px-3 py-1 text-xs font-bold;
 }
