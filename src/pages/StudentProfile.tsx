@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase';
 import { Collection, Lesson, LessonCycle, Student, StudentSchedule, DAY_NAMES_AR, Appointment, RecurringSchedule } from '../lib/types';
 import { estimateCompletionDate, formatDate } from '../lib/dates';
 import RecurringScheduleForm from '../components/RecurringScheduleForm';
+import AppointmentCard from '../components/AppointmentCard';
 import { convertTo12Hour } from '../lib/scheduling';
 
 export default function StudentProfile() {
@@ -273,118 +274,15 @@ export default function StudentProfile() {
 
       {/* Appointments Management */}
       <div className="card p-6">
-        <h2 className="font-extrabold text-moss-700 mb-3">إدارة المواعيد</h2>
+        <h2 className="font-extrabold text-moss-700 mb-3">المواعيد والحصص</h2>
         
         {appointments.length === 0 ? (
           <p className="text-sm text-ink/50">لا توجد مواعيد.</p>
         ) : (
           <div className="space-y-2 max-h-96 overflow-y-auto">
-            {appointments.map((a) => {
-              const { hour, period } = convertTo12Hour(a.start_hour);
-              const isEditing = editingAppointmentId === a.id;
-              
-              return (
-                <div key={a.id} className="p-3 border border-moss-200 rounded">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1">
-                        <p className="text-sm font-bold">
-                          {DAY_NAMES_AR[a.day_of_week]} — {a.date}
-                        </p>
-                        <span className={`pill text-xs ${
-                          a.status === 'scheduled' ? 'bg-moss-500/10 text-moss-700' :
-                          a.status === 'completed' ? 'bg-green-500/10 text-green-700' :
-                          'bg-red-500/10 text-red-600'
-                        }`}>
-                          {a.status === 'scheduled' ? 'مجدولة' : a.status === 'completed' ? 'مكتملة' : 'ملغاة'}
-                        </span>
-                      </div>
-                      
-                      {isEditing ? (
-                        <div className="flex gap-2 items-end">
-                          <div className="flex-1">
-                            <label className="label text-xs">الساعة</label>
-                            <input
-                              className="input text-xs w-full"
-                              type="number"
-                              min={0}
-                              max={23}
-                              value={editHour}
-                              onChange={(e) => setEditHour(Number(e.target.value))}
-                            />
-                          </div>
-                          <div className="flex-1">
-                            <label className="label text-xs">الدقيقة</label>
-                            <input
-                              className="input text-xs w-full"
-                              type="number"
-                              min={0}
-                              max={59}
-                              value={editMinute}
-                              onChange={(e) => setEditMinute(Number(e.target.value))}
-                            />
-                          </div>
-                        </div>
-                      ) : (
-                        <p className="text-sm font-bold text-moss-700">
-                          {String(hour).padStart(2, '0')}:{String(a.start_minute).padStart(2, '0')} {period === 'am' ? 'ص' : 'م'}
-                        </p>
-                      )}
-                    </div>
-
-                    <div className="flex flex-col gap-1">
-                      {a.status === 'scheduled' && (
-                        <>
-                          {!isEditing ? (
-                            <>
-                              <button
-                                onClick={() => {
-                                  setEditingAppointmentId(a.id);
-                                  setEditHour(a.start_hour);
-                                  setEditMinute(a.start_minute);
-                                }}
-                                className="btn-secondary text-xs px-2 py-1"
-                              >
-                                تعديل
-                              </button>
-                              <button
-                                onClick={() => handleAppointmentStatusChange(a.id, 'completed')}
-                                className="btn-primary text-xs px-2 py-1"
-                              >
-                                مكتملة
-                              </button>
-                            </>
-                          ) : (
-                            <>
-                              <button
-                                onClick={() => handleSaveAppointmentEdit(a.id)}
-                                className="btn-primary text-xs px-2 py-1"
-                              >
-                                حفظ
-                              </button>
-                              <button
-                                onClick={() => setEditingAppointmentId(null)}
-                                className="btn-secondary text-xs px-2 py-1"
-                              >
-                                إلغاء
-                              </button>
-                            </>
-                          )}
-                        </>
-                      )}
-                      {a.status !== 'cancelled' && (
-                        <button
-                          onClick={() => handleAppointmentStatusChange(a.id, 'cancelled')}
-                          className="text-red-600 text-xs hover:underline"
-                        >
-                          ملغاة
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+            {appointments.map((a) => (
+              <AppointmentCard key={a.id} appointment={a} onUpdate={load} isEditable={true} />
+            ))}
           </div>
         )}
       </div>

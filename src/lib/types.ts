@@ -103,8 +103,13 @@ export type Appointment = {
   day_of_week: number;
   start_hour: number;
   start_minute: number;
-  status: 'scheduled' | 'completed' | 'cancelled';
+  status: 'scheduled' | 'completed' | 'cancelled' | 'rescheduled';
   notes: string | null;
+  // Original appointment info (populated when rescheduled)
+  original_date: string | null;
+  original_start_hour: number | null;
+  original_start_minute: number | null;
+  reschedule_reason: string | null;
   created_at: string;
   updated_at: string;
 };
