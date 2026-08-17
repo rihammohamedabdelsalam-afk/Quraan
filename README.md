@@ -100,65 +100,6 @@ src/pages/Availability.tsx          → أيام وساعات عمل المعل�
 
 ## أخوة الطلاب (Sibling Relationships)
 
-مُنفّذة بالكامل: ربط أخ واحد من صفحة الطالب يُنشئ العلاقة العكسية تلقائيًا
-(`fn_sibling_mirror` trigger في `0002_scheduling_notifications_siblings.sql`).
-
----
-
-## Update — Modification pass (see supabase/migrations/0002_*.sql)
-
-هذا القسم يوثّق التعديلات اللي اتضافت فوق النسخة الأولى، طبقًا لطلب التعديل.
-
-### 1. Files changed
-- `supabase/migrations/0002_scheduling_notifications_siblings.sql` (جديد)
-- `supabase/tests/business_logic.sql` (جديد — سكريبت تحقق يدوي)
-- `src/lib/cycleLogic.ts`, `src/lib/availability.ts` (جديد — منطق نقي لأغراض الاختبار والمعاينة)
-- `src/lib/__tests__/cycleLogic.test.ts`, `src/lib/__tests__/availability.test.ts` (جديد)
-- `src/lib/types.ts` — أنواع جديدة (Notification, SiblingRelationship, TeacherAvailabilitySlot, BlockedTime)
-- `src/lib/dates.ts` — `estimateCompletionDate` بقى ياخد الحصص الفعلية المجدولة في الاعتبار أولًا
-- `src/pages/StudentProfile.tsx` — تدفق إعادة جدولة حقيقي + محرر الإخوة
-- `src/pages/Calendar.tsx` (جديد), `src/pages/Notifications.tsx` (جديد)
-- `src/pages/Dashboard.tsx` — فصل مالي/تشغيلي + فرص تحصيل قادمة + قائمة حصص مستحقة
-- `src/App.tsx`, `src/components/Layout.tsx` — مسارات وروابط جديدة
-- `src/vite-env.d.ts` (جديد — كان ناقص، بيسبب فشل `tsc` في خطوة الـbuild)
-- `package.json`, `vitest.config.ts` — إضافة vitest
-
-### 2. Database changes
-- Unique index `uq_collections_cycle` — يمنع فعليًا على مستوى الداتابيز أكتر من تحصيل واحد لكل دورة (دفاع إضافي فوق منطق الـtrigger الموجود أصلًا).
-- Unique index `uq_outstanding_open_cycle` — رصيد مستحق مفتوح واحد فقط لكل دورة.
-- `fn_postpone_lesson`, `fn_reschedule_lesson`, `fn_get_available_slots` — تأجيل/إعادة جدولة حقيقية بحساب فعلي للمواعيد المتاحة (مواعيد عمل المعلمة − الأوقات المحجوبة − الحصص الموجودة).
-- `notifications` — أعمدة `cycle_id`, `collection_id` + unique indexes لمنع التكرار.
-- `fn_handle_lesson_completed` (نفس منطق الدورة/التحصيل بالضبط) — بقى كمان بينشئ إشعارات عند: الوصول لنقطة التحصيل، اكتمال الدورة، تصفير الرصيد المستحق.
-- `fn_generate_lesson_reminders` — إشعارات "قبل 10 دقايق" و"حان الموعد"، idempotent، مُصممة للاستدعاء الدوري (الواجهة بتستدعيها كل دقيقة، أو تقدر تحطيها على pg_cron/Edge Function).
-- `fn_sibling_mirror` trigger — العلاقة بين الإخوة بقت bidirectional تلقائيًا من إدخال واحد.
-
-### 3. Business logic changes
-لا تغيير في القاعدة الذهبية نفسها (كانت صح من الأول في `0001_init.sql`) — كل التعديل إضافات حوالها:
-- تأكيد "مرة واحدة بالضبط لكل دورة" بقى مضمون على مستوى الداتابيز (unique index) مش بس منطق التريجر.
-- تاريخ إكمال الدورة المتوقع بقى يعتمد على الحصص المجدولة فعليًا (مش بس النمط الأسبوعي)، فلو اتأجلت آخر حصة، التاريخ المتوقع بيتغيّر تلقائيًا.
-
-### 4. Notification changes
-موصوفة في القسم 2 أعلاه — التوليد الفعلي موجود دلوقتي، مش بس الجدول.
-
-### 5. Scheduling/rescheduling changes
-تدفق حقيقي: تأجيل → اختيار تاريخ → مواعيد متاحة محسوبة فعليًا من `fn_get_available_slots` → اختيار موعد → `fn_reschedule_lesson` (بيحتفظ بالتاريخ الأصلي، وما بيكررش الحصة). صفحة **التقويم** الجديدة بتعرض الحصص بـ Day/Week/Month وبتسمح بنفس الإجراءات.
-
-### 6. Tests added
-- `src/lib/__tests__/cycleLogic.test.ts` — 15+ اختبار يغطي كل الحالات المطلوبة في القسم 24 (تحصيل عند 4/8، مرة واحدة بس، بقاء العداد بعد الشهر، إغلاق الدورة عند 8/8، دورة جديدة تبدأ من 1/8، التأجيل ما بيغيرش التقدم، إلخ).
-- `src/lib/__tests__/availability.test.ts` — حساب المواعيد المتاحة بيستبعد التعارضات والأوقات المحجوبة، وما بيخترعش موعد وهمي.
-- `supabase/tests/business_logic.sql` — نفس السيناريوهات لكن ضد الـtrigger الحقيقي في الداتابيز (`fn_handle_lesson_completed`)، بما فيها التأكد إن الـunique index بيرفض فعليًا تحصيل مكرر، وإن علاقة الإخوة بتتعمل تلقائيًا في الاتجاهين.
-
-### 7. Tests passed
-تقدر تشغّلي `npm test` (بعد `npm install`) للاختبارات في `src/lib/__tests__/`.
-
-**ملاحظة مهمة من بيئة التنفيذ:** الـsandbox اللي اتعمل فيه التعديل مالوش اتصال إنترنت، فمقدرش أعمل `npm install` ولا أشغّل `npm test` / `npm run build` / Supabase فعليًا هنا. اللي اتعمل بدل كده:
-- كل ملفات TypeScript اتفحصت بالـTypeScript compiler (نسخة عامة متاحة محليًا) ضد الكود نفسه، من غير أخطاء حقيقية غير الأخطاء المتوقعة بسبب عدم وجود `node_modules` (زي عدم إيجاد `react`/`@supabase`).
-- منطق الدورة/التحصيل والمواعيد المتاحة (كل الملفات في `src/lib/`) اتشغّل فعليًا (مش بس اتقرا) بسكريبت تحقق مستقل عن طريق `tsx`، وعدّى الـ14 اختبار بنجاح 100%. ده نفس المنطق بالظبط اللي بيستورد منه `cycleLogic.test.ts`.
-- سكريبت `supabase/tests/business_logic.sql` اتكتب بنفس السيناريوهات لكن محتاج Postgres حقيقي (Supabase project) يتشغل عليه — متوفرش هنا.
-
-**لازم تشغّلي `npm install && npm test` و `supabase db push` ثم `psql -f supabase/tests/business_logic.sql` بنفسك قبل الديبلوي للتأكد الكامل.**
-
-### 8. Remaining limitations
-- إشعارات "قبل 10 دقايق"/"حان الموعد" محتاجة استدعاء دوري فعلي — الواجهة بتعمل كده وهي مفتوحة (polling كل دقيقة)، لكن لو مفيش حد فاتح التطبيق مفيش cron حقيقي شغال في الخلفية. لو عايزة إشعارات حقيقية حتى لو التطبيق مقفول، محتاجة تضيفي `pg_cron` schedule يستدعي `fn_generate_lesson_reminders()` كل دقيقة، أو Supabase Edge Function مجدولة.
-- صفحة التقويم فيها Day/Week/Month views وإجراءات على كل حصة، لكن من غير drag-and-drop.
-- كل التعديلات دي اتفحصت منطقيًا وباختبارات مستقلة، لكن محتاجة تشغيل `npm install` + `supabase db push` فعلي وتجربة حقيقية على مشروعك قبل الاعتماد عليها في الإنتاج — زي ما اتوضح في القسم 7.
+الجدول `sibling_relationships` موجود في الداتابيز جاهز، وواجهة ربط
+الإخوة ببعض لسه مش مضافة في الشاشات — سهل تضيفيها من نفس نمط الفورمز
+الموجودة.
