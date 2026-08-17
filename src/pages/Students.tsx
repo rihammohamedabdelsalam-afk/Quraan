@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { LessonCycle, Student, DAY_NAMES_AR } from '../lib/types';
+import TimePicker12 from '../components/TimePicker12';
 
 type Row = Student & {
   cycle?: LessonCycle | null;
@@ -618,16 +619,9 @@ function AddStudentForm({
               وقت الحصة
             </label>
 
-            <input
-              className="input"
-              type="time"
+            <TimePicker12
               value={startTime}
-              onChange={(e) =>
-                setStartTime(
-                  e.target.value
-                )
-              }
-              required
+              onChange={setStartTime}
             />
           </div>
 
