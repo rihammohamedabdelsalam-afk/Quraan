@@ -1,0 +1,37 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <rect width="512" height="512" fill="#3B82F6"/>
+  
+  <!-- Rounded corners -->
+  <rect width="512" height="512" rx="100" ry="100" fill="#3B82F6"/>
+  
+  <!-- Circle background for icon -->
+  <circle cx="256" cy="256" r="180" fill="#FFFFFF" opacity="0.15"/>
+  
+  <!-- Calendar/Schedule representation -->
+  <!-- Top bar of calendar -->
+  <rect x="120" y="100" width="272" height="50" rx="8" fill="#FFFFFF"/>
+  
+  <!-- Calendar grid -->
+  <!-- Row 1 -->
+  <rect x="120" y="160" width="60" height="60" rx="4" fill="#FFFFFF"/>
+  <rect x="190" y="160" width="60" height="60" rx="4" fill="#FFFFFF"/>
+  <rect x="260" y="160" width="60" height="60" rx="4" fill="#FFFFFF"/>
+  <rect x="330" y="160" width="60" height="60" rx="4" fill="#FFFFFF"/>
+  
+  <!-- Row 2 -->
+  <rect x="120" y="230" width="60" height="60" rx="4" fill="#E0E7FF"/>
+  <rect x="190" y="230" width="60" height="60" rx="4" fill="#E0E7FF"/>
+  <rect x="260" y="230" width="60" height="60" rx="4" fill="#E0E7FF"/>
+  <rect x="330" y="230" width="60" height="60" rx="4" fill="#E0E7FF"/>
+  
+  <!-- Row 3 -->
+  <rect x="120" y="300" width="60" height="60" rx="4" fill="#C7D2FE"/>
+  <rect x="190" y="300" width="60" height="60" rx="4" fill="#C7D2FE"/>
+  <rect x="260" y="300" width="60" height="60" rx="4" fill="#DDD6FE"/>
+  <rect x="330" y="300" width="60" height="60" rx="4" fill="#DDD6FE"/>
+  
+  <!-- Checkmark on bottom right -->
+  <circle cx="360" cy="360" r="45" fill="#10B981"/>
+  <path d="M 340 360 L 355 375 L 380 345" stroke="#FFFFFF" stroke-width="8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
