@@ -1,0 +1,12 @@
+Cloudflare Pages settings for this project
+
+Framework preset: Vite
+Build command: npm run build
+Build output directory: dist
+Root directory: / (the repository root)
+
+Environment variables:
+VITE_SUPABASE_URL = your Supabase Project URL
+VITE_SUPABASE_ANON_KEY = your Supabase Publishable/Anon key
+
+Do NOT add the Supabase service_role/secret key to Cloudflare frontend variables.
