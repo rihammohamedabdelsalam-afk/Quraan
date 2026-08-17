@@ -30,6 +30,9 @@ export type LessonCycle = {
 
   total_lessons: number;
 
+  // عدد الحصص التي أخذها الطالب قبل استخدام التطبيق
+  initial_progress: number;
+
   collection_trigger: number;
   collection_amount: number;
 
@@ -196,10 +199,34 @@ export type RecurringSchedule = {
 
   days_of_week: number[];
 
+  // الوقت الافتراضي القديم للجدول
+  // سيظل موجودًا للتوافق مع الجداول القديمة
   start_hour: number;
   start_minute: number;
 
+  // عدد الأسابيع
   num_weeks: number;
+
+  // مدة الحصة بالدقائق
+  duration_minutes: number;
+
+  // وقت مختلف لكل يوم
+  //
+  // مثال:
+  // {
+  //   "0": "16:00",
+  //   "1": "17:30",
+  //   "3": "19:00"
+  // }
+  //
+  // 0 = الأحد
+  // 1 = الاثنين
+  // 2 = الثلاثاء
+  // 3 = الأربعاء
+  // 4 = الخميس
+  // 5 = الجمعة
+  // 6 = السبت
+  day_times: Record<string, string>;
 
   status: RecurringScheduleStatus;
 
@@ -295,6 +322,19 @@ export type StudentScheduleInput = {
 
 
 // ============================================================
+// بيانات اليوم الواحد عند إنشاء الجدول
+// ============================================================
+
+export type ScheduleDayInput = {
+  day_of_week: number;
+
+  start_time: string;
+
+  duration_minutes: number;
+};
+
+
+// ============================================================
 // بيانات إنشاء طالب جديد
 // ============================================================
 
@@ -311,8 +351,22 @@ export type CreateStudentInput = {
 
   collection_amount: number;
 
+  // ==========================================================
+  // حالة الطالب عند إضافته
+  // ==========================================================
+
+  // true  = طالب جديد
+  // false = لديه حصص سابقة
+  is_new_student: boolean;
+
+  // عدد الحصص التي أخذها سابقًا
+  previous_lessons: number;
+
   // جدول الطالب
   schedule: StudentScheduleInput | null;
+
+  // جدول بأوقات مختلفة لكل يوم
+  schedule_days: ScheduleDayInput[] | null;
 };
 
 

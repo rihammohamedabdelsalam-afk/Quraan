@@ -2,7 +2,9 @@
  * Scheduling utilities for recurring appointments and schedule management
  */
 
-import { Appointment, RecurringSchedule } from './types';
+import { Appointment } from './types';
+
+export type DayTimeMap = Record<number, string>;
 
 export type SchedulePreview = {
   date: string;
@@ -14,72 +16,134 @@ export type SchedulePreview = {
   formattedTime: string;
 };
 
-const DAY_NAMES_AR = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
+const DAY_NAMES_AR = [
+  'الأحد',
+  'الاثنين',
+  'الثلاثاء',
+  'الأربعاء',
+  'الخميس',
+  'الجمعة',
+  'السبت',
+];
 
 /**
- * Generate appointment previews for a recurring schedule
- * Simulates what appointments will be created without actually creating them
+ * Generate appointment previews for a recurring schedule.
+ *
+ * Each selected day can have its own time.
+ *
+ * Example:
+ * {
+ *   0: '16:00',
+ *   2: '18:30',
+ *   4: '17:00'
+ * }
  */
 export function generateSchedulePreview(
   startDate: string,
   daysOfWeek: number[],
-  startHour: number,
-  startMinute: number,
+  dayTimes: DayTimeMap,
   numWeeks: number
 ): SchedulePreview[] {
   const previews: SchedulePreview[] = [];
-  const start = new Date(startDate);
 
-  // Ensure we start from the correct date
+  if (!startDate || daysOfWeek.length === 0 || numWeeks < 1) {
+    return previews;
+  }
+
+  const start = new Date(`${startDate}T00:00:00`);
+
+  if (Number.isNaN(start.getTime())) {
+    return previews;
+  }
+
   const startDayOfWeek = start.getDay();
 
-  // For each week
   for (let week = 0; week < numWeeks; week++) {
-    // For each selected day of week
     for (const dayOfWeek of daysOfWeek) {
-      // Calculate days to add
-      let daysToAdd = dayOfWeek - startDayOfWeek;
-      if (daysToAdd < 0) {
-        daysToAdd += 7;
-      }
-      if (week > 0 || daysToAdd > 0) {
-        daysToAdd = startDayOfWeek === dayOfWeek && week === 0 ? 0 : daysToAdd;
+      const time = dayTimes[dayOfWeek];
+
+      if (!time) {
+        continue;
       }
 
-      // Calculate actual date
+      const [hourString, minuteString] = time.split(':');
+
+      const hour = Number(hourString);
+      const minute = Number(minuteString);
+
+      if (
+        !Number.isInteger(hour) ||
+        !Number.isInteger(minute) ||
+        hour < 0 ||
+        hour > 23 ||
+        minute < 0 ||
+        minute > 59
+      ) {
+        continue;
+      }
+
+      let daysUntilSelectedDay =
+        dayOfWeek - startDayOfWeek;
+
+      if (daysUntilSelectedDay < 0) {
+        daysUntilSelectedDay += 7;
+      }
+
       const appointmentDate = new Date(start);
-      appointmentDate.setDate(start.getDate() + week * 7 + (dayOfWeek >= startDayOfWeek ? dayOfWeek - startDayOfWeek : 7 - startDayOfWeek + dayOfWeek));
 
-      // Format the date string (YYYY-MM-DD)
-      const dateStr = appointmentDate.toISOString().split('T')[0];
-      const dayName = DAY_NAMES_AR[appointmentDate.getDay()];
-      const formattedDate = appointmentDate.toLocaleDateString('ar-EG', {
-        day: 'numeric',
-        month: 'long',
-        year: 'numeric',
-      });
-      const formattedTime = `${String(startHour).padStart(2, '0')}:${String(startMinute).padStart(2, '0')}`;
+      appointmentDate.setDate(
+        start.getDate() +
+          week * 7 +
+          daysUntilSelectedDay
+      );
+
+      const dateStr = formatDateOnly(appointmentDate);
+
+      const actualDayOfWeek =
+        appointmentDate.getDay();
+
+      const formattedDate =
+        appointmentDate.toLocaleDateString('ar-EG', {
+          day: 'numeric',
+          month: 'long',
+          year: 'numeric',
+        });
+
+      const formattedTime = formatTimeArabic(
+        hour,
+        minute
+      );
 
       previews.push({
         date: dateStr,
-        dayOfWeek: appointmentDate.getDay(),
-        hour: startHour,
-        minute: startMinute,
-        dayNameAr: dayName,
+        dayOfWeek: actualDayOfWeek,
+        hour,
+        minute,
+        dayNameAr:
+          DAY_NAMES_AR[actualDayOfWeek],
         formattedDate,
         formattedTime,
       });
     }
   }
 
-  // Sort by date
-  previews.sort((a, b) => a.date.localeCompare(b.date));
+  previews.sort((a, b) => {
+    if (a.date !== b.date) {
+      return a.date.localeCompare(b.date);
+    }
+
+    if (a.hour !== b.hour) {
+      return a.hour - b.hour;
+    }
+
+    return a.minute - b.minute;
+  });
 
   return previews;
 }
 
 /**
- * Create multiple appointments from a preview
+ * Create multiple appointments from a preview.
  */
 export async function createAppointmentsFromPreview(
   supabase: any,
@@ -87,6 +151,10 @@ export async function createAppointmentsFromPreview(
   recurringScheduleId: string,
   previews: SchedulePreview[]
 ): Promise<void> {
+  if (previews.length === 0) {
+    return;
+  }
+
   const appointments = previews.map((preview) => ({
     student_id: studentId,
     recurring_schedule_id: recurringScheduleId,
@@ -101,11 +169,13 @@ export async function createAppointmentsFromPreview(
     .from('appointments')
     .insert(appointments);
 
-  if (error) throw error;
+  if (error) {
+    throw error;
+  }
 }
 
 /**
- * Check for appointment conflicts on a specific date and time
+ * Check for appointment conflicts on a specific date and time.
  */
 export async function checkConflicts(
   supabase: any,
@@ -125,12 +195,16 @@ export async function checkConflicts(
     .eq('status', 'scheduled');
 
   if (excludeAppointmentId) {
-    query = query.neq('id', excludeAppointmentId);
+    query = query.neq(
+      'id',
+      excludeAppointmentId
+    );
   }
 
-  const { data, error } = await query.single();
+  const { data, error } =
+    await query.maybeSingle();
 
-  if (error && error.code !== 'PGRST116') {
+  if (error) {
     throw error;
   }
 
@@ -138,61 +212,139 @@ export async function checkConflicts(
 }
 
 /**
- * Format time for display
+ * Format time for display.
  */
-export function formatTime(hour: number, minute: number, amPm: 'am' | 'pm' = 'am'): string {
-  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')} ${amPm === 'am' ? 'ص' : 'م'}`;
+export function formatTime(
+  hour: number,
+  minute: number,
+  amPm: 'am' | 'pm' = 'am'
+): string {
+  return `${String(hour).padStart(2, '0')}:${String(
+    minute
+  ).padStart(2, '0')} ${
+    amPm === 'am' ? 'ص' : 'م'
+  }`;
 }
 
 /**
- * Convert 24-hour time to 12-hour time
+ * Convert 24-hour time to 12-hour time.
  */
-export function convertTo12Hour(hour: number): { hour: number; period: 'am' | 'pm' } {
-  if (hour === 0) return { hour: 12, period: 'am' };
-  if (hour === 12) return { hour: 12, period: 'pm' };
-  if (hour < 12) return { hour, period: 'am' };
-  return { hour: hour - 12, period: 'pm' };
+export function convertTo12Hour(hour: number): {
+  hour: number;
+  period: 'am' | 'pm';
+} {
+  if (hour === 0) {
+    return {
+      hour: 12,
+      period: 'am',
+    };
+  }
+
+  if (hour === 12) {
+    return {
+      hour: 12,
+      period: 'pm',
+    };
+  }
+
+  if (hour < 12) {
+    return {
+      hour,
+      period: 'am',
+    };
+  }
+
+  return {
+    hour: hour - 12,
+    period: 'pm',
+  };
 }
 
 /**
- * Convert 12-hour time to 24-hour time
+ * Convert 12-hour time to 24-hour time.
  */
-export function convertTo24Hour(hour: number, period: 'am' | 'pm'): number {
+export function convertTo24Hour(
+  hour: number,
+  period: 'am' | 'pm'
+): number {
   if (period === 'am') {
     return hour === 12 ? 0 : hour;
   }
+
   return hour === 12 ? 12 : hour + 12;
 }
 
 /**
- * Get week number options
+ * Get week number options.
  */
 export const WEEK_OPTIONS = [
-  { label: '1 أسبوع', value: 1 },
-  { label: '2 أسبوع', value: 2 },
-  { label: '3 أسابيع', value: 3 },
-  { label: '4 أسابيع', value: 4 },
-  { label: '5 أسابيع', value: 5 },
-  { label: '6 أسابيع', value: 6 },
-  { label: '8 أسابيع', value: 8 },
-  { label: '12 أسبوع', value: 12 },
+  {
+    label: '1 أسبوع',
+    value: 1,
+  },
+  {
+    label: '2 أسبوع',
+    value: 2,
+  },
+  {
+    label: '3 أسابيع',
+    value: 3,
+  },
+  {
+    label: '4 أسابيع',
+    value: 4,
+  },
+  {
+    label: '5 أسابيع',
+    value: 5,
+  },
+  {
+    label: '6 أسابيع',
+    value: 6,
+  },
+  {
+    label: '8 أسابيع',
+    value: 8,
+  },
+  {
+    label: '12 أسبوع',
+    value: 12,
+  },
 ];
 
 /**
- * Format time as Arabic (e.g., 10:00 ص)
- * Input: hour (24), minute
- * Output: "10:00 ص" or "5:30 م"
+ * Format time as Arabic.
+ *
+ * Input:
+ * hour = 17
+ * minute = 30
+ *
+ * Output:
+ * 05:30 م
  */
-export function formatTimeArabic(hour: number, minute: number): string {
-  const { hour: h12, period } = convertTo12Hour(hour);
-  const periodAr = period === 'am' ? 'ص' : 'م';
-  return `${String(h12).padStart(2, '0')}:${String(minute).padStart(2, '0')} ${periodAr}`;
+export function formatTimeArabic(
+  hour: number,
+  minute: number
+): string {
+  const {
+    hour: h12,
+    period,
+  } = convertTo12Hour(hour);
+
+  const periodAr =
+    period === 'am' ? 'ص' : 'م';
+
+  return `${String(h12).padStart(
+    2,
+    '0'
+  )}:${String(minute).padStart(
+    2,
+    '0'
+  )} ${periodAr}`;
 }
 
 /**
- * Check if appointment times overlap (for conflict detection)
- * Assumes each appointment is 1 hour long by default
- * Returns true if there's a conflict
+ * Check if appointment times overlap.
  */
 export function hasTimeConflict(
   existingHour: number,
@@ -201,20 +353,28 @@ export function hasTimeConflict(
   newMinute: number,
   durationMinutes: number = 60
 ): boolean {
-  // Convert to minutes from midnight
-  const existingStart = existingHour * 60 + existingMinute;
-  const existingEnd = existingStart + durationMinutes;
-  
-  const newStart = newHour * 60 + newMinute;
-  const newEnd = newStart + durationMinutes;
+  const existingStart =
+    existingHour * 60 +
+    existingMinute;
 
-  // Check for overlap
-  return !(newEnd <= existingStart || newStart >= existingEnd);
+  const existingEnd =
+    existingStart + durationMinutes;
+
+  const newStart =
+    newHour * 60 +
+    newMinute;
+
+  const newEnd =
+    newStart + durationMinutes;
+
+  return !(
+    newEnd <= existingStart ||
+    newStart >= existingEnd
+  );
 }
 
 /**
- * Get next N available days for rescheduling
- * Returns dates excluding past dates and optionally specific days
+ * Get next N available days for rescheduling.
  */
 export function getAvailableDates(
   startDate: string,
@@ -222,35 +382,55 @@ export function getAvailableDates(
   excludeDates?: string[]
 ): string[] {
   const dates: string[] = [];
-  const current = new Date(startDate);
+
+  const current = new Date(
+    `${startDate}T00:00:00`
+  );
+
+  if (Number.isNaN(current.getTime())) {
+    return dates;
+  }
+
   current.setHours(0, 0, 0, 0);
 
-  // Ensure we don't include past dates
   const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  
+
+  today.setHours(
+    0,
+    0,
+    0,
+    0
+  );
+
   if (current < today) {
     current.setTime(today.getTime());
   }
 
   while (dates.length < numDays) {
-    const dateStr = current.toISOString().split('T')[0];
-    const isDayOfWeek6Or5 = current.getDay() === 5 || current.getDay() === 6; // Friday and Saturday
-    
-    if (!excludeDates?.includes(dateStr) && !isDayOfWeek6Or5) {
+    const dateStr =
+      formatDateOnly(current);
+
+    const isFridayOrSaturday =
+      current.getDay() === 5 ||
+      current.getDay() === 6;
+
+    if (
+      !excludeDates?.includes(dateStr) &&
+      !isFridayOrSaturday
+    ) {
       dates.push(dateStr);
     }
 
-    current.setDate(current.getDate() + 1);
+    current.setDate(
+      current.getDate() + 1
+    );
   }
 
   return dates;
 }
 
 /**
- * Get available time slots for a specific date
- * Filters out times with existing appointments
- * Returns slots as array of {hour, minute, formatted}
+ * Get available time slots for a specific date.
  */
 export async function getAvailableSlots(
   supabase: any,
@@ -258,40 +438,77 @@ export async function getAvailableSlots(
   date: string,
   excludeAppointmentId?: string,
   durationMinutes: number = 60
-): Promise<Array<{ hour: number; minute: number; formatted: string }>> {
-  // Get all appointments for this teacher on this date
-  const { data: appointments, error } = await supabase
+): Promise<
+  Array<{
+    hour: number;
+    minute: number;
+    formatted: string;
+  }>
+> {
+  const {
+    data: appointments,
+    error,
+  } = await supabase
     .from('appointments')
-    .select('start_hour, start_minute')
+    .select(
+      'id, start_hour, start_minute'
+    )
     .eq('teacher_id', teacherId)
     .eq('date', date)
     .neq('status', 'cancelled')
     .neq('status', 'rescheduled');
 
-  if (error) throw error;
+  if (error) {
+    throw error;
+  }
 
-  const bookedSlots = (appointments || [])
-    .filter((a: any) => a.id !== excludeAppointmentId)
-    .map((a: any) => ({
-      hour: a.start_hour,
-      minute: a.start_minute,
+  const bookedSlots = (
+    appointments || []
+  )
+    .filter(
+      (appointment: any) =>
+        appointment.id !==
+        excludeAppointmentId
+    )
+    .map((appointment: any) => ({
+      hour: appointment.start_hour,
+      minute:
+        appointment.start_minute,
     }));
 
-  // Generate all possible slots (every 30 minutes from 8 AM to 8 PM)
-  const slots: Array<{ hour: number; minute: number; formatted: string }> = [];
-  
-  for (let hour = 8; hour < 20; hour++) {
-    for (let minute of [0, 30]) {
-      // Check if this slot conflicts with any booked slot
-      const hasConflict = bookedSlots.some((booked: any) =>
-        hasTimeConflict(booked.hour, booked.minute, hour, minute, durationMinutes)
-      );
+  const slots: Array<{
+    hour: number;
+    minute: number;
+    formatted: string;
+  }> = [];
+
+  for (
+    let hour = 8;
+    hour < 20;
+    hour++
+  ) {
+    for (const minute of [0, 30]) {
+      const hasConflict =
+        bookedSlots.some(
+          (booked: any) =>
+            hasTimeConflict(
+              booked.hour,
+              booked.minute,
+              hour,
+              minute,
+              durationMinutes
+            )
+        );
 
       if (!hasConflict) {
         slots.push({
           hour,
           minute,
-          formatted: formatTimeArabic(hour, minute),
+          formatted:
+            formatTimeArabic(
+              hour,
+              minute
+            ),
         });
       }
     }
@@ -301,9 +518,7 @@ export async function getAvailableSlots(
 }
 
 /**
- * Reschedule an appointment to a new date and time
- * Preserves original appointment info
- * Does NOT modify recurring_schedule
+ * Reschedule an appointment.
  */
 export async function rescheduleAppointment(
   supabase: any,
@@ -313,36 +528,126 @@ export async function rescheduleAppointment(
   newMinute: number,
   reason?: string
 ): Promise<void> {
-  // First, fetch the current appointment to preserve original info
-  const { data: current, error: fetchError } = await supabase
+  const {
+    data: current,
+    error: fetchError,
+  } = await supabase
     .from('appointments')
     .select('*')
     .eq('id', appointmentId)
     .single();
 
-  if (fetchError) throw fetchError;
+  if (fetchError) {
+    throw fetchError;
+  }
 
-  // Calculate new day of week
-  const newDateObj = new Date(newDate);
-  const newDayOfWeek = newDateObj.getDay();
+  if (!current) {
+    throw new Error(
+      'لم يتم العثور على الموعد.'
+    );
+  }
 
-  // Update the appointment
-  const { error: updateError } = await supabase
+  const newDateObj = new Date(
+    `${newDate}T00:00:00`
+  );
+
+  if (Number.isNaN(newDateObj.getTime())) {
+    throw new Error(
+      'تاريخ الموعد الجديد غير صحيح.'
+    );
+  }
+
+  const newDayOfWeek =
+    newDateObj.getDay();
+
+  const {
+    error: updateError,
+  } = await supabase
     .from('appointments')
     .update({
       date: newDate,
       day_of_week: newDayOfWeek,
       start_hour: newHour,
       start_minute: newMinute,
-      // Preserve original appointment info (only if not already rescheduled)
-      original_date: current.original_date || current.date,
-      original_start_hour: current.original_start_hour !== null ? current.original_start_hour : current.start_hour,
-      original_start_minute: current.original_start_minute !== null ? current.original_start_minute : current.start_minute,
-      reschedule_reason: reason || null,
+      original_date:
+        current.original_date ||
+        current.date,
+      original_start_hour:
+        current.original_start_hour !==
+        null
+          ? current.original_start_hour
+          : current.start_hour,
+      original_start_minute:
+        current.original_start_minute !==
+        null
+          ? current.original_start_minute
+          : current.start_minute,
+      reschedule_reason:
+        reason || null,
       status: 'rescheduled',
-      updated_at: new Date().toISOString(),
+      updated_at:
+        new Date().toISOString(),
     })
     .eq('id', appointmentId);
 
-  if (updateError) throw updateError;
+  if (updateError) {
+    throw updateError;
+  }
+}
+
+/**
+ * Convert a HH:mm string into hour/minute.
+ */
+export function parseTime(
+  time: string
+): {
+  hour: number;
+  minute: number;
+} | null {
+  const match =
+    /^(\d{1,2}):(\d{2})$/.exec(
+      time
+    );
+
+  if (!match) {
+    return null;
+  }
+
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+
+  if (
+    hour < 0 ||
+    hour > 23 ||
+    minute < 0 ||
+    minute > 59
+  ) {
+    return null;
+  }
+
+  return {
+    hour,
+    minute,
+  };
+}
+
+/**
+ * Format a Date as YYYY-MM-DD
+ * without UTC conversion problems.
+ */
+function formatDateOnly(
+  date: Date
+): string {
+  const year =
+    date.getFullYear();
+
+  const month = String(
+    date.getMonth() + 1
+  ).padStart(2, '0');
+
+  const day = String(
+    date.getDate()
+  ).padStart(2, '0');
+
+  return `${year}-${month}-${day}`;
 }

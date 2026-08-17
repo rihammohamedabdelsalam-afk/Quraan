@@ -8,6 +8,8 @@ type Row = Student & {
   cycle?: LessonCycle | null;
 };
 
+type StudentStartType = 'new' | 'previous';
+
 export default function Students() {
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
@@ -192,53 +194,84 @@ function AddStudentForm({
   onDone: () => void;
   onCancel: () => void;
 }) {
-  // =========================
+  // ============================================================
   // بيانات الطالب
-  // =========================
+  // ============================================================
 
   const [name, setName] = useState('');
   const [age, setAge] = useState('');
   const [phone, setPhone] = useState('');
 
-  // =========================
+  // ============================================================
+  // حالة الطالب
+  // ============================================================
+
+  const [studentStartType, setStudentStartType] =
+    useState<StudentStartType>('new');
+
+  const [previousLessons, setPreviousLessons] =
+    useState(0);
+
+  // ============================================================
   // الدورة
-  // =========================
+  // ============================================================
 
-  const [totalLessons, setTotalLessons] = useState(8);
-  const [amount, setAmount] = useState(1000);
+  const [totalLessons, setTotalLessons] =
+    useState(8);
 
-  // =========================
+  const [amount, setAmount] =
+    useState(1000);
+
+  // ============================================================
   // الجدول
-  // =========================
+  // ============================================================
 
-  const [selectedDays, setSelectedDays] = useState<number[]>(
-    []
-  );
+  const [selectedDays, setSelectedDays] =
+    useState<number[]>([]);
 
-  const [startTime, setStartTime] = useState('16:00');
+  // وقت مختلف لكل يوم
+  const [dayTimes, setDayTimes] =
+    useState<Record<number, string>>({});
 
-  const [duration, setDuration] = useState(60);
+  const [duration, setDuration] =
+    useState(60);
 
-  const [numWeeks, setNumWeeks] = useState(4);
+  const [numWeeks, setNumWeeks] =
+    useState(4);
 
-  // =========================
+  // ============================================================
   // الحالة
-  // =========================
+  // ============================================================
 
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(
-    null
-  );
+  const [saving, setSaving] =
+    useState(false);
 
-  // =========================
+  const [error, setError] =
+    useState<string | null>(null);
+
+  // ============================================================
   // اختيار اليوم
-  // =========================
+  // ============================================================
 
   function toggleDay(day: number) {
     setSelectedDays((current) => {
       if (current.includes(day)) {
-        return current.filter((d) => d !== day);
+        setDayTimes((times) => {
+          const next = { ...times };
+          delete next[day];
+          return next;
+        });
+
+        return current.filter(
+          (d) => d !== day
+        );
       }
+
+      // أول وقت افتراضي لليوم الجديد
+      setDayTimes((times) => ({
+        ...times,
+        [day]: times[day] ?? '16:00',
+      }));
 
       return [...current, day].sort(
         (a, b) => a - b
@@ -246,18 +279,34 @@ function AddStudentForm({
     });
   }
 
-  // =========================
-  // حفظ الطالب
-  // =========================
+  // ============================================================
+  // تغيير وقت يوم معين
+  // ============================================================
 
-  async function handleSubmit(e: FormEvent) {
+  function handleDayTimeChange(
+    day: number,
+    value: string
+  ) {
+    setDayTimes((current) => ({
+      ...current,
+      [day]: value,
+    }));
+  }
+
+  // ============================================================
+  // حفظ الطالب
+  // ============================================================
+
+  async function handleSubmit(
+    e: FormEvent
+  ) {
     e.preventDefault();
 
     setError(null);
 
-    // -------------------------
+    // ==========================================================
     // Validation
-    // -------------------------
+    // ==========================================================
 
     if (!name.trim()) {
       setError('اكتب اسم الطالب.');
@@ -301,6 +350,34 @@ function AddStudentForm({
       return;
     }
 
+    // ==========================================================
+    // الحصص السابقة
+    // ==========================================================
+
+    if (
+      studentStartType === 'previous' &&
+      (!Number.isInteger(previousLessons) ||
+        previousLessons < 1)
+    ) {
+      setError(
+        'اكتب عدد الحصص السابقة بشكل صحيح.'
+      );
+      return;
+    }
+
+    if (
+      previousLessons > totalLessons
+    ) {
+      setError(
+        'عدد الحصص السابقة لا يمكن أن يكون أكبر من إجمالي الحصص.'
+      );
+      return;
+    }
+
+    // ==========================================================
+    // الأيام
+    // ==========================================================
+
     if (selectedDays.length === 0) {
       setError(
         'اختر يومًا واحدًا على الأقل للجدول.'
@@ -308,15 +385,59 @@ function AddStudentForm({
       return;
     }
 
+    // ==========================================================
+    // التأكد من وجود وقت لكل يوم
+    // ==========================================================
+
+    for (const day of selectedDays) {
+      const time = dayTimes[day];
+
+      if (!time) {
+        setError(
+          `حدد وقت الحصة يوم ${DAY_NAMES_AR[day]}.`
+        );
+        return;
+      }
+
+      const [hourString, minuteString] =
+        time.split(':');
+
+      const hour = Number(hourString);
+      const minute = Number(minuteString);
+
+      if (
+        !Number.isInteger(hour) ||
+        !Number.isInteger(minute) ||
+        hour < 0 ||
+        hour > 23 ||
+        minute < 0 ||
+        minute > 59
+      ) {
+        setError(
+          `وقت الحصة يوم ${DAY_NAMES_AR[day]} غير صحيح.`
+        );
+        return;
+      }
+    }
+
+    // ==========================================================
+    // مدة الحصة
+    // ==========================================================
+
     if (
       !Number.isFinite(duration) ||
-      duration <= 0
+      duration <= 0 ||
+      duration > 480
     ) {
       setError(
-        'مدة الحصة يجب أن تكون أكبر من صفر.'
+        'مدة الحصة يجب أن تكون بين 1 و 480 دقيقة.'
       );
       return;
     }
+
+    // ==========================================================
+    // الأسابيع
+    // ==========================================================
 
     if (
       !Number.isFinite(numWeeks) ||
@@ -329,34 +450,42 @@ function AddStudentForm({
       return;
     }
 
-    // -------------------------
-    // تحويل الوقت
-    // -------------------------
+    // ==========================================================
+    // بداية الدورة
+    // ==========================================================
 
-    const [hourString, minuteString] =
-      startTime.split(':');
-
-    const startHour = Number(hourString);
-    const startMinute = Number(minuteString);
-
-    if (
-      !Number.isInteger(startHour) ||
-      !Number.isInteger(startMinute) ||
-      startHour < 0 ||
-      startHour > 23 ||
-      startMinute < 0 ||
-      startMinute > 59
-    ) {
-      setError('وقت الحصة غير صحيح.');
-      return;
-    }
+    const initialProgress =
+      studentStartType === 'previous'
+        ? previousLessons
+        : 0;
 
     setSaving(true);
 
     try {
-      // =========================
+      // ==========================================================
+      // المستخدم الحالي
+      // ==========================================================
+
+      const {
+        data: userData,
+        error: userError,
+      } = await supabase.auth.getUser();
+
+      if (userError) {
+        throw userError;
+      }
+
+      const user = userData.user;
+
+      if (!user) {
+        throw new Error(
+          'يجب تسجيل الدخول أولًا.'
+        );
+      }
+
+      // ==========================================================
       // 1. إنشاء الطالب + الدورة
-      // =========================
+      // ==========================================================
 
       const {
         data: studentId,
@@ -370,6 +499,7 @@ function AddStudentForm({
           p_notes: null,
           p_total_lessons: totalLessons,
           p_collection_amount: amount,
+          p_initial_progress: initialProgress,
         }
       );
 
@@ -383,9 +513,47 @@ function AddStudentForm({
         );
       }
 
-      // =========================
-      // 2. إنشاء الجدول المتكرر
-      // =========================
+      // ==========================================================
+      // 2. تحويل أوقات الأيام إلى JSON
+      // ==========================================================
+
+      const dayTimesJson: Record<
+        string,
+        string
+      > = {};
+
+      for (const day of selectedDays) {
+        dayTimesJson[String(day)] =
+          dayTimes[day];
+      }
+
+      // ==========================================================
+      // 3. الوقت الافتراضي القديم
+      //
+      // نضع وقت أول يوم في start_hour/start_minute
+      // للحفاظ على التوافق مع البيانات القديمة.
+      // ==========================================================
+
+      const firstDay =
+        selectedDays[0];
+
+      const firstDayTime =
+        dayTimes[firstDay];
+
+      const [
+        firstHourString,
+        firstMinuteString,
+      ] = firstDayTime.split(':');
+
+      const firstHour =
+        Number(firstHourString);
+
+      const firstMinute =
+        Number(firstMinuteString);
+
+      // ==========================================================
+      // 4. إنشاء الجدول المتكرر
+      // ==========================================================
 
       const today = new Date()
         .toISOString()
@@ -397,11 +565,14 @@ function AddStudentForm({
         .from('recurring_schedules')
         .insert({
           student_id: studentId,
+          teacher_id: user.id,
           start_date: today,
           days_of_week: selectedDays,
-          start_hour: startHour,
-          start_minute: startMinute,
+          start_hour: firstHour,
+          start_minute: firstMinute,
           num_weeks: numWeeks,
+          duration_minutes: duration,
+          day_times: dayTimesJson,
           status: 'active',
         });
 
@@ -409,9 +580,9 @@ function AddStudentForm({
         throw scheduleError;
       }
 
-      // =========================
+      // ==========================================================
       // تم الحفظ
-      // =========================
+      // ==========================================================
 
       onDone();
     } catch (err) {
@@ -430,18 +601,18 @@ function AddStudentForm({
     }
   }
 
-  // =========================
+  // ============================================================
   // الواجهة
-  // =========================
+  // ============================================================
 
   return (
     <form
       onSubmit={handleSubmit}
       className="card p-6 space-y-6 max-w-2xl"
     >
-      {/* =========================
+      {/* ========================================================
           العنوان
-      ========================= */}
+      ======================================================== */}
 
       <div>
         <h2 className="font-extrabold text-xl text-moss-700">
@@ -453,9 +624,9 @@ function AddStudentForm({
         </p>
       </div>
 
-      {/* =========================
+      {/* ========================================================
           بيانات الطالب
-      ========================= */}
+      ======================================================== */}
 
       <div>
         <h3 className="font-extrabold text-ink mb-3">
@@ -559,9 +730,129 @@ function AddStudentForm({
         </div>
       </div>
 
-      {/* =========================
+      {/* ========================================================
+          حالة الطالب
+      ======================================================== */}
+
+      <div className="border-t border-moss-100 pt-5">
+        <h3 className="font-extrabold text-ink mb-1">
+          بداية الطالب
+        </h3>
+
+        <p className="text-sm text-ink/50 mb-4">
+          حدد هل الطالب سيبدأ من الصفر أم لديه حصص سابقة.
+        </p>
+
+        <div className="grid sm:grid-cols-2 gap-3">
+          {/* طالب جديد */}
+          <button
+            type="button"
+            onClick={() => {
+              setStudentStartType('new');
+              setPreviousLessons(0);
+            }}
+            className={`text-right p-4 rounded-2xl border-2 transition ${
+              studentStartType === 'new'
+                ? 'border-moss-500 bg-moss-50'
+                : 'border-ink/10 bg-white hover:border-moss-300'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <div
+                className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                  studentStartType === 'new'
+                    ? 'border-moss-500'
+                    : 'border-ink/20'
+                }`}
+              >
+                {studentStartType === 'new' && (
+                  <div className="w-2.5 h-2.5 rounded-full bg-moss-500" />
+                )}
+              </div>
+
+              <div>
+                <p className="font-extrabold text-ink">
+                  طالب جديد
+                </p>
+
+                <p className="text-xs text-ink/50 mt-1">
+                  يبدأ من 0 حصة
+                </p>
+              </div>
+            </div>
+          </button>
+
+          {/* إضافة حصص سابقة */}
+          <button
+            type="button"
+            onClick={() =>
+              setStudentStartType('previous')
+            }
+            className={`text-right p-4 rounded-2xl border-2 transition ${
+              studentStartType === 'previous'
+                ? 'border-moss-500 bg-moss-50'
+                : 'border-ink/10 bg-white hover:border-moss-300'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <div
+                className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                  studentStartType === 'previous'
+                    ? 'border-moss-500'
+                    : 'border-ink/20'
+                }`}
+              >
+                {studentStartType === 'previous' && (
+                  <div className="w-2.5 h-2.5 rounded-full bg-moss-500" />
+                )}
+              </div>
+
+              <div>
+                <p className="font-extrabold text-ink">
+                  إضافة حصص سابقة
+                </p>
+
+                <p className="text-xs text-ink/50 mt-1">
+                  الطالب أخذ حصص قبل استخدام التطبيق
+                </p>
+              </div>
+            </div>
+          </button>
+        </div>
+
+        {/* عدد الحصص السابقة */}
+        {studentStartType === 'previous' && (
+          <div className="mt-4 rounded-2xl bg-moss-50 border border-moss-100 p-4">
+            <label className="label">
+              عدد الحصص السابقة
+            </label>
+
+            <input
+              className="input max-w-xs"
+              type="number"
+              min={1}
+              max={totalLessons}
+              step={1}
+              required
+              value={previousLessons}
+              onChange={(e) =>
+                setPreviousLessons(
+                  Number(e.target.value)
+                )
+              }
+              placeholder="مثال: 3"
+            />
+
+            <p className="text-xs text-ink/50 mt-2">
+              سيتم احتساب هذه الحصص ضمن تقدم الطالب.
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* ========================================================
           الجدول
-      ========================= */}
+      ======================================================== */}
 
       <div className="border-t border-moss-100 pt-5">
         <h3 className="font-extrabold text-ink mb-1">
@@ -569,12 +860,12 @@ function AddStudentForm({
         </h3>
 
         <p className="text-sm text-ink/50 mb-4">
-          اختر أيام الحصص ووقت البداية ومدة الحصة.
+          اختر أيام الحصص، ثم حدد وقت كل يوم بشكل مستقل.
         </p>
 
-        {/* =========================
+        {/* ======================================================
             الأيام
-        ========================= */}
+        ====================================================== */}
 
         <div className="mb-5">
           <label className="label">
@@ -608,23 +899,55 @@ function AddStudentForm({
           </div>
         </div>
 
-        {/* =========================
-            الوقت + المدة + الأسابيع
-        ========================= */}
+        {/* ======================================================
+            أوقات الأيام
+        ====================================================== */}
 
-        <div className="grid sm:grid-cols-3 gap-4">
-          {/* الوقت */}
-          <div>
+        {selectedDays.length > 0 && (
+          <div className="space-y-3">
             <label className="label">
-              وقت الحصة
+              وقت الحصة لكل يوم
             </label>
 
-            <TimePicker12
-              value={startTime}
-              onChange={setStartTime}
-            />
-          </div>
+            {selectedDays.map((day) => (
+              <div
+                key={day}
+                className="rounded-2xl border border-moss-100 bg-white p-4"
+              >
+                <div className="flex items-center justify-between gap-3 mb-3">
+                  <div>
+                    <p className="font-extrabold text-moss-700">
+                      {DAY_NAMES_AR[day]}
+                    </p>
 
+                    <p className="text-xs text-ink/40 mt-1">
+                      حدد وقت الحصة لهذا اليوم
+                    </p>
+                  </div>
+                </div>
+
+                <TimePicker12
+                  value={
+                    dayTimes[day] ??
+                    '16:00'
+                  }
+                  onChange={(value) =>
+                    handleDayTimeChange(
+                      day,
+                      value
+                    )
+                  }
+                />
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* ======================================================
+            المدة + الأسابيع
+        ====================================================== */}
+
+        <div className="grid sm:grid-cols-2 gap-4 mt-5">
           {/* المدة */}
           <div>
             <label className="label">
@@ -635,6 +958,7 @@ function AddStudentForm({
               className="input"
               type="number"
               min={1}
+              max={480}
               step={1}
               value={duration}
               onChange={(e) =>
@@ -673,45 +997,73 @@ function AddStudentForm({
         </div>
       </div>
 
-      {/* =========================
+      {/* ========================================================
           ملخص الجدول
-      ========================= */}
+      ======================================================== */}
 
       {selectedDays.length > 0 && (
         <div className="bg-moss-50 border border-moss-100 rounded-2xl p-4">
-          <p className="text-xs text-ink/50 mb-1">
+          <p className="text-xs text-ink/50 mb-2">
             ملخص الجدول
           </p>
 
-          <p className="font-bold text-moss-700">
-            {selectedDays
-              .map(
-                (day) =>
-                  DAY_NAMES_AR[day]
-              )
-              .join('، ')}
-          </p>
+          <div className="space-y-1">
+            {selectedDays.map((day) => (
+              <div
+                key={day}
+                className="flex items-center justify-between gap-3"
+              >
+                <span className="font-bold text-moss-700">
+                  {DAY_NAMES_AR[day]}
+                </span>
 
-          <p className="text-sm text-ink/60 mt-1">
-            الساعة {startTime} · مدة الحصة{' '}
-            {duration} دقيقة · {numWeeks}{' '}
-            أسابيع
+                <span className="text-sm font-bold text-ink">
+                  {dayTimes[day] ?? '—'}
+                </span>
+              </div>
+            ))}
+          </div>
+
+          <p className="text-sm text-ink/60 mt-3 pt-3 border-t border-moss-100">
+            مدة الحصة {duration} دقيقة ·{' '}
+            {numWeeks} أسابيع
           </p>
         </div>
       )}
 
-      {/* =========================
+      {/* ========================================================
+          ملخص البداية
+      ======================================================== */}
+
+      <div className="bg-clay-500/5 border border-clay-500/10 rounded-2xl p-4">
+        <p className="text-xs text-ink/50 mb-1">
+          بداية الطالب
+        </p>
+
+        {studentStartType === 'new' ? (
+          <p className="font-bold text-moss-700">
+            طالب جديد — 0 / {totalLessons} حصة
+          </p>
+        ) : (
+          <p className="font-bold text-moss-700">
+            إضافة {previousLessons} حصة سابقة —{' '}
+            {previousLessons} / {totalLessons} حصة
+          </p>
+        )}
+      </div>
+
+      {/* ========================================================
           التحصيل
-      ========================= */}
+      ======================================================== */}
 
       <p className="text-xs text-ink/50">
         سيتم التحصيل تلقائيًا عند إكمال الحصة رقم{' '}
         {Math.floor(totalLessons / 2) || '—'}.
       </p>
 
-      {/* =========================
+      {/* ========================================================
           خطأ
-      ========================= */}
+      ======================================================== */}
 
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-700 p-3 rounded-xl text-sm">
@@ -719,9 +1071,9 @@ function AddStudentForm({
         </div>
       )}
 
-      {/* =========================
+      {/* ========================================================
           الأزرار
-      ========================= */}
+      ======================================================== */}
 
       <div className="flex gap-2">
         <button
