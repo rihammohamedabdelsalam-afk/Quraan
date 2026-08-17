@@ -29,7 +29,9 @@ BEGIN
   RETURNING id INTO v_student_id;
 
   -- Create initial lesson cycle
-  INSERT INTO lesson_cycles (student_id, cycle_number, total_lessons, collection_trigger, collection_amount, progress, outstanding_lessons, status, collection_status, started_at)
-  VALUES (v_student_id, 1, p_total_lessons, p_total_lessons / 2, p_collection_amount, 0, 0, 'active', 'not_yet_collected', now());
+  -- Note: collection_trigger is a GENERATED COLUMN and will be calculated automatically
+  -- Do NOT include it in the INSERT statement
+  INSERT INTO lesson_cycles (student_id, cycle_number, total_lessons, collection_amount, progress, outstanding_lessons, status, collection_status, started_at)
+  VALUES (v_student_id, 1, p_total_lessons, p_collection_amount, 0, 0, 'active', 'not_yet_collected', now());
 END;
 $$;
