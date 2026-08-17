@@ -2,8 +2,7 @@ export type Student = {
   id: string;
   teacher_id: string;
   name: string;
-  grade: string | null;
-  subject: string | null;
+  age: number | null;
   phone: string | null;
   notes: string | null;
   start_date: string;
@@ -79,6 +78,35 @@ export type StudentSchedule = {
   duration_minutes: number;
   active_from: string;
   active_to: string | null;
+};
+
+export type RecurringSchedule = {
+  id: string;
+  student_id: string;
+  teacher_id: string;
+  start_date: string;
+  days_of_week: number[];
+  start_hour: number;
+  start_minute: number;
+  num_weeks: number;
+  status: 'active' | 'archived';
+  created_at: string;
+  updated_at: string;
+};
+
+export type Appointment = {
+  id: string;
+  student_id: string;
+  teacher_id: string;
+  recurring_schedule_id: string | null;
+  date: string;
+  day_of_week: number;
+  start_hour: number;
+  start_minute: number;
+  status: 'scheduled' | 'completed' | 'cancelled';
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
 };
 
 export const DAY_NAMES_AR = [

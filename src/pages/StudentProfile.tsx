@@ -1,8 +1,10 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { Collection, Lesson, LessonCycle, Student, StudentSchedule, DAY_NAMES_AR } from '../lib/types';
+import { Collection, Lesson, LessonCycle, Student, StudentSchedule, DAY_NAMES_AR, Appointment, RecurringSchedule } from '../lib/types';
 import { estimateCompletionDate, formatDate } from '../lib/dates';
+import RecurringScheduleForm from '../components/RecurringScheduleForm';
+import { convertTo12Hour } from '../lib/scheduling';
 
 export default function StudentProfile() {
   const { id } = useParams<{ id: string }>();
@@ -12,18 +14,29 @@ export default function StudentProfile() {
   const [lessons, setLessons] = useState<Lesson[]>([]);
   const [collections, setCollections] = useState<Collection[]>([]);
   const [schedule, setSchedule] = useState<StudentSchedule[]>([]);
+  const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [recurringSchedules, setRecurringSchedules] = useState<RecurringSchedule[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showRecurringForm, setShowRecurringForm] = useState(false);
+  const [editingAppointmentId, setEditingAppointmentId] = useState<string | null>(null);
+  const [editHour, setEditHour] = useState(0);
+  const [editMinute, setEditMinute] = useState(0);
 
   async function load() {
     if (!id) return;
     setLoading(true);
-    const [{ data: st }, { data: cycles }, { data: lsn }, { data: cols }, { data: sched }] = await Promise.all([
+    const { data: user } = await supabase.auth.getUser();
+    
+    const [{ data: st }, { data: cycles }, { data: lsn }, { data: cols }, { data: sched }, { data: appts }, { data: recurring }] = await Promise.all([
       supabase.from('students').select('*').eq('id', id).single(),
       supabase.from('lesson_cycles').select('*').eq('student_id', id).order('cycle_number', { ascending: false }),
       supabase.from('lessons').select('*').eq('student_id', id).order('scheduled_date', { ascending: true }),
       supabase.from('collections').select('*').eq('student_id', id).order('collected_at', { ascending: false }),
       supabase.from('student_schedule').select('*').eq('student_id', id),
+      supabase.from('appointments').select('*').eq('student_id', id).order('date', { ascending: true }).order('start_hour', { ascending: true }),
+      supabase.from('recurring_schedules').select('*').eq('student_id', id).eq('status', 'active'),
     ]);
+    
     setStudent(st ?? null);
     const active = (cycles ?? []).find((c) => c.status === 'active') ?? null;
     setCycle(active);
@@ -31,6 +44,8 @@ export default function StudentProfile() {
     setLessons(lsn ?? []);
     setCollections(cols ?? []);
     setSchedule(sched ?? []);
+    setAppointments(appts ?? []);
+    setRecurringSchedules(recurring ?? []);
     setLoading(false);
   }
 
@@ -48,128 +63,334 @@ export default function StudentProfile() {
     load();
   }
 
-  if (loading) return <p className="text-ink/50">جارِ التحميل...</p>;
-  if (!student || !cycle) return <p className="text-ink/50">لم يتم العثور على الطالب.</p>;
+  async function handleAppointmentStatusChange(appointmentId: string, newStatus: Appointment['status']) {
+    await supabase.from('appointments').update({ status: newStatus }).eq('id', appointmentId);
+    load();
+  }
 
-  const upcoming = lessons.filter((l) => l.cycle_id === cycle.id && l.status === 'scheduled');
-  const currentCycleLessons = lessons.filter((l) => l.cycle_id === cycle.id);
-  const remainingToCycleEnd = cycle.total_lessons - cycle.progress;
+  async function handleSaveAppointmentEdit(appointmentId: string) {
+    await supabase.from('appointments').update({ start_hour: editHour, start_minute: editMinute }).eq('id', appointmentId);
+    setEditingAppointmentId(null);
+    load();
+  }
+
+  if (loading) return <p className="text-ink/50">جارِ التحميل...</p>;
+  if (!student) return <p className="text-ink/50">لم يتم العثور على الطالب.</p>;
+
+  const upcoming = lessons.filter((l) => l.cycle_id === cycle?.id && l.status === 'scheduled');
+  const currentCycleLessons = lessons.filter((l) => l.cycle_id === cycle?.id);
+  const remainingToCycleEnd = cycle ? cycle.total_lessons - cycle.progress : 0;
   const remainingToCollection =
-    cycle.collection_status === 'not_yet_collected'
+    cycle && cycle.collection_status === 'not_yet_collected'
       ? cycle.collection_trigger - cycle.progress
       : 0;
   const estCompletion = estimateCompletionDate(schedule, remainingToCycleEnd);
+  
+  // Filter today's appointments
+  const today = new Date().toISOString().split('T')[0];
+  const todayAppointments = appointments.filter(a => a.date === today && a.status === 'scheduled');
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-extrabold text-moss-700">{student.name}</h1>
         <p className="text-sm text-ink/50">
-          {student.grade ?? '—'} {student.subject ? `· ${student.subject}` : ''} {student.phone ? `· ${student.phone}` : ''}
+          {student.age ? `${student.age} سنة` : '—'} {student.phone ? `· ${student.phone}` : ''}
         </p>
       </div>
 
-      {/* Cycle overview */}
-      <div className="card p-6 grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        <Stat label={`تقدم الدورة #${cycle.cycle_number}`} value={`${cycle.progress} / ${cycle.total_lessons}`} />
-        <Stat
-          label="حالة التحصيل"
-          value={cycle.collection_status === 'collected' ? 'تم التحصيل ✓' : `باقي ${remainingToCollection} لنقطة التحصيل`}
-        />
-        <Stat label="حصص مستحقة للطالب" value={`${cycle.outstanding_lessons}`} />
-        <Stat
-          label="موعد إكمال الدورة المتوقع"
-          value={estCompletion ? formatDate(estCompletion) : '—'}
-        />
-        <div className="sm:col-span-2 lg:col-span-4">
-          <div className="w-full bg-moss-50 rounded-full h-3 overflow-hidden">
-            <div
-              className="bg-moss-500 h-3 rounded-full transition-all"
-              style={{ width: `${(cycle.progress / cycle.total_lessons) * 100}%` }}
-            />
+      {/* Today's Appointments */}
+      {todayAppointments.length > 0 && (
+        <div className="card p-6 bg-moss-50 border border-moss-200">
+          <h2 className="font-extrabold text-moss-700 mb-2">حصص اليوم</h2>
+          <p className="text-xs text-ink/50 mb-3">عدد الحصص المجدولة: {todayAppointments.length}</p>
+          <div className="space-y-2">
+            {todayAppointments.map((a) => {
+              const { hour, period } = convertTo12Hour(a.start_hour);
+              return (
+                <div key={a.id} className="flex items-center justify-between p-3 bg-white rounded border border-moss-100">
+                  <div>
+                    <p className="font-bold text-sm">{student.name}</p>
+                    <p className="text-xs text-ink/50">
+                      {String(hour).padStart(2, '0')}:{String(a.start_minute).padStart(2, '0')} {period === 'am' ? 'ص' : 'م'}
+                    </p>
+                  </div>
+                  <span className="pill bg-moss-500/10 text-moss-700 text-xs">مجدولة</span>
+                </div>
+              );
+            })}
           </div>
         </div>
-      </div>
+      )}
 
-      {/* Schedule lessons */}
-      <ScheduleLessonForm cycleId={cycle.id} studentId={student.id} onDone={load} />
+      {cycle && (
+        <>
+          {/* Cycle overview */}
+          <div className="card p-6 grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            <Stat label={`تقدم الدورة #${cycle.cycle_number}`} value={`${cycle.progress} / ${cycle.total_lessons}`} />
+            <Stat
+              label="حالة التحصيل"
+              value={cycle.collection_status === 'collected' ? 'تم التحصيل ✓' : `باقي ${remainingToCollection} لنقطة التحصيل`}
+            />
+            <Stat label="حصص مستحقة للطالب" value={`${cycle.outstanding_lessons}`} />
+            <Stat
+              label="موعد إكمال الدورة المتوقع"
+              value={estCompletion ? formatDate(estCompletion) : '—'}
+            />
+            <div className="sm:col-span-2 lg:col-span-4">
+              <div className="w-full bg-moss-50 rounded-full h-3 overflow-hidden">
+                <div
+                  className="bg-moss-500 h-3 rounded-full transition-all"
+                  style={{ width: `${(cycle.progress / cycle.total_lessons) * 100}%` }}
+                />
+              </div>
+            </div>
+          </div>
 
-      {/* Upcoming lessons */}
+          {/* Schedule lessons */}
+          <ScheduleLessonForm cycleId={cycle.id} studentId={student.id} onDone={load} />
+
+          {/* Upcoming lessons */}
+          <div className="card p-6">
+            <h2 className="font-extrabold text-moss-700 mb-3">حصص الدورة الحالية</h2>
+            {currentCycleLessons.length === 0 ? (
+              <p className="text-sm text-ink/50">لا توجد حصص مضافة بعد.</p>
+            ) : (
+              <div className="space-y-2">
+                {currentCycleLessons.map((l) => (
+                  <div key={l.id} className="flex items-center justify-between border-b border-moss-50 py-2">
+                    <div className="text-sm">
+                      <span className="font-bold">{formatDate(l.scheduled_date)}</span>{' '}
+                      {l.start_time && <span className="text-ink/50">{l.start_time}</span>}
+                      <StatusPill status={l.status} />
+                    </div>
+                    {l.status === 'scheduled' && (
+                      <div className="flex gap-2">
+                        <button className="btn-primary" onClick={() => markCompleted(l.id)}>
+                          تسجيل كمكتملة
+                        </button>
+                        <button className="btn-secondary" onClick={() => postpone(l.id)}>
+                          تأجيل
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Collection history */}
+          <div className="card p-6">
+            <h2 className="font-extrabold text-moss-700 mb-3">سجل التحصيل</h2>
+            {collections.length === 0 ? (
+              <p className="text-sm text-ink/50">لا يوجد تحصيل بعد.</p>
+            ) : (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-right text-ink/50">
+                    <th className="py-1">التاريخ</th>
+                    <th>المبلغ</th>
+                    <th>عند الحصة رقم</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {collections.map((c) => (
+                    <tr key={c.id} className="border-t border-moss-50">
+                      <td className="py-2">{formatDate(c.collected_at)}</td>
+                      <td className="font-bold text-moss-700">{c.amount} جنيه</td>
+                      <td>{c.trigger_lesson_number}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          {/* Cycle history */}
+          {pastCycles.length > 0 && (
+            <div className="card p-6">
+              <h2 className="font-extrabold text-moss-700 mb-3">تاريخ الدورات</h2>
+              <div className="space-y-2">
+                {pastCycles.map((c) => (
+                  <div key={c.id} className="flex justify-between text-sm border-t border-moss-50 pt-2">
+                    <span>دورة #{c.cycle_number}</span>
+                    <span>{c.total_lessons} حصص</span>
+                    <span className="text-moss-700 font-bold">{c.collection_amount} جنيه</span>
+                    <span className="pill bg-moss-50 text-moss-700">مكتملة</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Recurring Schedules Section */}
       <div className="card p-6">
-        <h2 className="font-extrabold text-moss-700 mb-3">حصص الدورة الحالية</h2>
-        {currentCycleLessons.length === 0 ? (
-          <p className="text-sm text-ink/50">لا توجد حصص مضافة بعد.</p>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="font-extrabold text-moss-700">الجداول المتكررة</h2>
+          <button className="btn-primary text-sm" onClick={() => setShowRecurringForm(!showRecurringForm)}>
+            {showRecurringForm ? 'إغلاق' : '+ جدول جديد'}
+          </button>
+        </div>
+
+        {showRecurringForm && (
+          <div className="mb-4">
+            <RecurringScheduleForm
+              studentId={student.id}
+              onDone={() => {
+                setShowRecurringForm(false);
+                load();
+              }}
+              onCancel={() => setShowRecurringForm(false)}
+            />
+          </div>
+        )}
+
+        {recurringSchedules.length === 0 ? (
+          <p className="text-sm text-ink/50">لا توجد جداول متكررة.</p>
         ) : (
           <div className="space-y-2">
-            {currentCycleLessons.map((l) => (
-              <div key={l.id} className="flex items-center justify-between border-b border-moss-50 py-2">
-                <div className="text-sm">
-                  <span className="font-bold">{formatDate(l.scheduled_date)}</span>{' '}
-                  {l.start_time && <span className="text-ink/50">{l.start_time}</span>}
-                  <StatusPill status={l.status} />
-                </div>
-                {l.status === 'scheduled' && (
-                  <div className="flex gap-2">
-                    <button className="btn-primary" onClick={() => markCompleted(l.id)}>
-                      تسجيل كمكتملة
-                    </button>
-                    <button className="btn-secondary" onClick={() => postpone(l.id)}>
-                      تأجيل
-                    </button>
+            {recurringSchedules.map((rs) => (
+              <div key={rs.id} className="p-3 bg-moss-50 rounded border border-moss-200">
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <p className="text-sm font-bold">
+                      {rs.days_of_week.map(d => DAY_NAMES_AR[d]).join('، ')}
+                    </p>
+                    <p className="text-xs text-ink/50">
+                      {String(rs.start_hour).padStart(2, '0')}:{String(rs.start_minute).padStart(2, '0')} — {rs.num_weeks} أسابيع
+                    </p>
                   </div>
-                )}
+                  <span className="pill bg-moss-500/10 text-moss-700 text-xs">نشط</span>
+                </div>
               </div>
             ))}
+          </div>
+        )}
+      </div>
+
+      {/* Appointments Management */}
+      <div className="card p-6">
+        <h2 className="font-extrabold text-moss-700 mb-3">إدارة المواعيد</h2>
+        
+        {appointments.length === 0 ? (
+          <p className="text-sm text-ink/50">لا توجد مواعيد.</p>
+        ) : (
+          <div className="space-y-2 max-h-96 overflow-y-auto">
+            {appointments.map((a) => {
+              const { hour, period } = convertTo12Hour(a.start_hour);
+              const isEditing = editingAppointmentId === a.id;
+              
+              return (
+                <div key={a.id} className="p-3 border border-moss-200 rounded">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <p className="text-sm font-bold">
+                          {DAY_NAMES_AR[a.day_of_week]} — {a.date}
+                        </p>
+                        <span className={`pill text-xs ${
+                          a.status === 'scheduled' ? 'bg-moss-500/10 text-moss-700' :
+                          a.status === 'completed' ? 'bg-green-500/10 text-green-700' :
+                          'bg-red-500/10 text-red-600'
+                        }`}>
+                          {a.status === 'scheduled' ? 'مجدولة' : a.status === 'completed' ? 'مكتملة' : 'ملغاة'}
+                        </span>
+                      </div>
+                      
+                      {isEditing ? (
+                        <div className="flex gap-2 items-end">
+                          <div className="flex-1">
+                            <label className="label text-xs">الساعة</label>
+                            <input
+                              className="input text-xs w-full"
+                              type="number"
+                              min={0}
+                              max={23}
+                              value={editHour}
+                              onChange={(e) => setEditHour(Number(e.target.value))}
+                            />
+                          </div>
+                          <div className="flex-1">
+                            <label className="label text-xs">الدقيقة</label>
+                            <input
+                              className="input text-xs w-full"
+                              type="number"
+                              min={0}
+                              max={59}
+                              value={editMinute}
+                              onChange={(e) => setEditMinute(Number(e.target.value))}
+                            />
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="text-sm font-bold text-moss-700">
+                          {String(hour).padStart(2, '0')}:{String(a.start_minute).padStart(2, '0')} {period === 'am' ? 'ص' : 'م'}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="flex flex-col gap-1">
+                      {a.status === 'scheduled' && (
+                        <>
+                          {!isEditing ? (
+                            <>
+                              <button
+                                onClick={() => {
+                                  setEditingAppointmentId(a.id);
+                                  setEditHour(a.start_hour);
+                                  setEditMinute(a.start_minute);
+                                }}
+                                className="btn-secondary text-xs px-2 py-1"
+                              >
+                                تعديل
+                              </button>
+                              <button
+                                onClick={() => handleAppointmentStatusChange(a.id, 'completed')}
+                                className="btn-primary text-xs px-2 py-1"
+                              >
+                                مكتملة
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <button
+                                onClick={() => handleSaveAppointmentEdit(a.id)}
+                                className="btn-primary text-xs px-2 py-1"
+                              >
+                                حفظ
+                              </button>
+                              <button
+                                onClick={() => setEditingAppointmentId(null)}
+                                className="btn-secondary text-xs px-2 py-1"
+                              >
+                                إلغاء
+                              </button>
+                            </>
+                          )}
+                        </>
+                      )}
+                      {a.status !== 'cancelled' && (
+                        <button
+                          onClick={() => handleAppointmentStatusChange(a.id, 'cancelled')}
+                          className="text-red-600 text-xs hover:underline"
+                        >
+                          ملغاة
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
 
       {/* Student schedule */}
       <StudentScheduleEditor studentId={student.id} schedule={schedule} onDone={load} />
-
-      {/* Collection history */}
-      <div className="card p-6">
-        <h2 className="font-extrabold text-moss-700 mb-3">سجل التحصيل</h2>
-        {collections.length === 0 ? (
-          <p className="text-sm text-ink/50">لا يوجد تحصيل بعد.</p>
-        ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-right text-ink/50">
-                <th className="py-1">التاريخ</th>
-                <th>المبلغ</th>
-                <th>عند الحصة رقم</th>
-              </tr>
-            </thead>
-            <tbody>
-              {collections.map((c) => (
-                <tr key={c.id} className="border-t border-moss-50">
-                  <td className="py-2">{formatDate(c.collected_at)}</td>
-                  <td className="font-bold text-moss-700">{c.amount} جنيه</td>
-                  <td>{c.trigger_lesson_number}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
-
-      {/* Cycle history */}
-      {pastCycles.length > 0 && (
-        <div className="card p-6">
-          <h2 className="font-extrabold text-moss-700 mb-3">تاريخ الدورات</h2>
-          <div className="space-y-2">
-            {pastCycles.map((c) => (
-              <div key={c.id} className="flex justify-between text-sm border-t border-moss-50 pt-2">
-                <span>دورة #{c.cycle_number}</span>
-                <span>{c.total_lessons} حصص</span>
-                <span className="text-moss-700 font-bold">{c.collection_amount} جنيه</span>
-                <span className="pill bg-moss-50 text-moss-700">مكتملة</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }

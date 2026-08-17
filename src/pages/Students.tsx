@@ -71,7 +71,7 @@ export default function Students() {
                 )}
               </div>
               <p className="text-xs text-ink/50 mb-3">
-                {s.grade ?? '—'} {s.subject ? `· ${s.subject}` : ''}
+                {s.age ? `${s.age} سنة` : '—'}
               </p>
               {s.cycle && (
                 <>
@@ -101,8 +101,7 @@ export default function Students() {
 
 function AddStudentForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
   const [name, setName] = useState('');
-  const [grade, setGrade] = useState('');
-  const [subject, setSubject] = useState('');
+  const [age, setAge] = useState('');
   const [phone, setPhone] = useState('');
   const [totalLessons, setTotalLessons] = useState(8);
   const [amount, setAmount] = useState(1000);
@@ -115,12 +114,16 @@ function AddStudentForm({ onDone, onCancel }: { onDone: () => void; onCancel: ()
       setError('عدد الحصص يجب أن يكون رقمًا زوجيًا.');
       return;
     }
+    const ageNum = age ? parseInt(age, 10) : null;
+    if (ageNum !== null && (ageNum < 5 || ageNum > 80)) {
+      setError('السن يجب أن تكون بين 5 و 80 سنة.');
+      return;
+    }
     setSaving(true);
     setError(null);
     const { error } = await supabase.rpc('fn_create_student_with_cycle', {
       p_name: name,
-      p_grade: grade || null,
-      p_subject: subject || null,
+      p_age: ageNum,
       p_phone: phone || null,
       p_notes: null,
       p_total_lessons: totalLessons,
@@ -143,12 +146,16 @@ function AddStudentForm({ onDone, onCancel }: { onDone: () => void; onCancel: ()
           <input className="input" required value={name} onChange={(e) => setName(e.target.value)} />
         </div>
         <div>
-          <label className="label">الصف الدراسي</label>
-          <input className="input" value={grade} onChange={(e) => setGrade(e.target.value)} />
-        </div>
-        <div>
-          <label className="label">المادة</label>
-          <input className="input" value={subject} onChange={(e) => setSubject(e.target.value)} />
+          <label className="label">السن (اختياري)</label>
+          <input
+            className="input"
+            type="number"
+            min={5}
+            max={80}
+            value={age}
+            onChange={(e) => setAge(e.target.value)}
+            placeholder="مثال: 10"
+          />
         </div>
         <div>
           <label className="label">رقم الهاتف</label>
