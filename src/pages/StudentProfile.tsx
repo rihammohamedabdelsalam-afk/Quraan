@@ -6,7 +6,7 @@ import { estimateCompletionDate, formatDate } from '../lib/dates';
 import RecurringScheduleForm from '../components/RecurringScheduleForm';
 import AppointmentCard from '../components/AppointmentCard';
 import { convertTo12Hour } from '../lib/scheduling';
-
+import TimePicker12 from '../components/TimePicker12';
 export default function StudentProfile() {
   const { id } = useParams<{ id: string }>();
   const [student, setStudent] = useState<Student | null>(null);
@@ -356,7 +356,7 @@ function ScheduleLessonForm({
       </div>
       <div>
         <label className="label">الوقت</label>
-        <input className="input" type="time" value={time} onChange={(e) => setTime(e.target.value)} />
+        <TimePicker12 value={time}onChange={setTime}/>
       </div>
       <button type="submit" disabled={saving} className="btn-primary">
         إضافة حصة

@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { DAY_NAMES_AR } from '../lib/types';
+import TimePicker12 from '../components/TimePicker12';
 
 type AvailabilitySlot = {
   id: string;
@@ -121,7 +122,7 @@ function AvailabilityForm({ onDone }: { onDone: () => void }) {
       </div>
       <div>
         <label className="label">من</label>
-        <input className="input" type="time" value={start} onChange={(e) => setStart(e.target.value)} />
+        <TimePicker12 value={start}onChange={setStart}/>
       </div>
       <div>
         <label className="label">إلى</label>
