@@ -1,16 +1,16 @@
-# Cloudflare Pages deployment
+# Cloudflare Pages
 
-This ZIP is flattened so package.json, src/, index.html, and supabase/
-are at the repository root.
+Repository root is already flattened (no `app/` root directory).
 
-Cloudflare Pages:
-- Framework preset: Vite
-- Build command: npm run build
-- Build output directory: dist
+Build:
+- Framework: Vite
+- Build command: `npm run build`
+- Output directory: `dist`
 - Root directory: leave empty
 
 Environment variables:
-- VITE_SUPABASE_URL = your Supabase Project URL
-- VITE_SUPABASE_ANON_KEY = your Supabase Publishable/anon key
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_ANON_KEY`
 
-Never put a Supabase service_role/secret key in a VITE_ variable or in the browser.
+Use the Supabase Project URL and Publishable/anon key. Never expose a
+`service_role` or secret key in a VITE_ variable.
