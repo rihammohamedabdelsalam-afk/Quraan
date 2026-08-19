@@ -9,14 +9,21 @@ import {
   DAY_NAMES_AR,
   Lesson,
   LessonCycle,
+  RecurringSchedule,
   Student,
-  StudentSchedule,
 } from '../lib/types';
 
 import { formatDate } from '../lib/dates';
 import { convertTo12Hour } from '../lib/scheduling';
 import TimePicker12 from '../components/TimePicker12';
 import AppointmentCard from '../components/AppointmentCard';
+import {
+  completeLesson as completeLessonRpc,
+  markLessonAbsent,
+  cancelLesson as cancelLessonRpc,
+  postponeLesson as postponeLessonRpc,
+  deleteLesson as deleteLessonRpc,
+} from '../lib/services/lessons';
 
 
 // ============================================================
@@ -32,7 +39,8 @@ export default function StudentProfile() {
 
   const [lessons, setLessons] = useState<Lesson[]>([]);
   const [collections, setCollections] = useState<Collection[]>([]);
-  const [schedule, setSchedule] = useState<StudentSchedule[]>([]);
+  const [recurringSchedule, setRecurringSchedule] =
+    useState<RecurringSchedule | null>(null);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
 
   const [loading, setLoading] = useState(true);
@@ -77,8 +85,18 @@ export default function StudentProfile() {
   const [editingSchedule, setEditingSchedule] = useState(false);
   const [savingSchedule, setSavingSchedule] = useState(false);
 
-  const [scheduleDraft, setScheduleDraft] =
-    useState<StudentSchedule[]>([]);
+  const [draftDays, setDraftDays] = useState<number[]>([]);
+  const [draftDayTimes, setDraftDayTimes] =
+    useState<Record<number, string>>({});
+  const [draftDuration, setDraftDuration] = useState(60);
+  const [draftNumWeeks, setDraftNumWeeks] = useState(52);
+
+  const [syncSummary, setSyncSummary] = useState<{
+    created: number;
+    updated: number;
+    cancelled: number;
+    conflicts: Array<{ date: string; reason: string }>;
+  } | null>(null);
 
   // ==========================================================
   // Load
@@ -134,15 +152,11 @@ export default function StudentProfile() {
           }),
 
         supabase
-          .from('student_schedule')
+          .from('recurring_schedules')
           .select('*')
           .eq('student_id', id)
-          .order('day_of_week', {
-            ascending: true,
-          })
-          .order('start_time', {
-            ascending: true,
-          }),
+          .eq('status', 'active')
+          .maybeSingle(),
 
         supabase
           .from('appointments')
@@ -170,7 +184,7 @@ export default function StudentProfile() {
       setCycle(cycles?.[0] ?? null);
       setLessons(lsn ?? []);
       setCollections(cols ?? []);
-      setSchedule(sched ?? []);
+      setRecurringSchedule(sched ?? null);
       setAppointments(appts ?? []);
     } catch (err) {
       setError(
@@ -436,16 +450,10 @@ export default function StudentProfile() {
   ) {
     setError(null);
 
-    const { error } =
-      await supabase
-        .from('lessons')
-        .update({
-          status: 'completed',
-        })
-        .eq('id', lessonId);
+    const result = await completeLessonRpc(lessonId);
 
-    if (error) {
-      setError(error.message);
+    if (!result.ok) {
+      setError(result.error);
       return;
     }
 
@@ -461,16 +469,10 @@ export default function StudentProfile() {
   ) {
     setError(null);
 
-    const { error } =
-      await supabase
-        .from('lessons')
-        .update({
-          status: 'absent',
-        })
-        .eq('id', lessonId);
+    const result = await markLessonAbsent(lessonId);
 
-    if (error) {
-      setError(error.message);
+    if (!result.ok) {
+      setError(result.error);
       return;
     }
 
@@ -486,16 +488,10 @@ export default function StudentProfile() {
   ) {
     setError(null);
 
-    const { error } =
-      await supabase
-        .from('lessons')
-        .update({
-          status: 'postponed',
-        })
-        .eq('id', lessonId);
+    const result = await postponeLessonRpc(lessonId);
 
-    if (error) {
-      setError(error.message);
+    if (!result.ok) {
+      setError(result.error);
       return;
     }
 
@@ -511,16 +507,10 @@ export default function StudentProfile() {
   ) {
     setError(null);
 
-    const { error } =
-      await supabase
-        .from('lessons')
-        .update({
-          status: 'cancelled',
-        })
-        .eq('id', lessonId);
+    const result = await cancelLessonRpc(lessonId);
 
-    if (error) {
-      setError(error.message);
+    if (!result.ok) {
+      setError(result.error);
       return;
     }
 
@@ -645,23 +635,14 @@ export default function StudentProfile() {
     setError(null);
 
     try {
-      const { error } =
-        await supabase
-          .from('lessons')
-          .delete()
-          .eq('id', lessonId);
+      const result = await deleteLessonRpc(lessonId);
 
-      if (error) {
-        throw error;
+      if (!result.ok) {
+        setError(result.error);
+        return;
       }
 
       await load();
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : 'حدث خطأ أثناء حذف الحصة.'
-      );
     } finally {
       setDeletingLessonId(null);
     }
@@ -672,12 +653,25 @@ export default function StudentProfile() {
   // ==========================================================
 
   function startEditSchedule() {
-    setScheduleDraft(
-      schedule.map((item) => ({
-        ...item,
-      }))
-    );
+    if (recurringSchedule) {
+      setDraftDays([...recurringSchedule.days_of_week]);
+      setDraftDayTimes(
+        Object.fromEntries(
+          Object.entries(
+            recurringSchedule.day_times || {}
+          ).map(([k, v]) => [Number(k), v as string])
+        )
+      );
+      setDraftDuration(recurringSchedule.duration_minutes);
+      setDraftNumWeeks(recurringSchedule.num_weeks);
+    } else {
+      setDraftDays([]);
+      setDraftDayTimes({});
+      setDraftDuration(60);
+      setDraftNumWeeks(52);
+    }
 
+    setSyncSummary(null);
     setEditingSchedule(true);
     setError(null);
   }
@@ -690,100 +684,41 @@ export default function StudentProfile() {
     if (savingSchedule) return;
 
     setEditingSchedule(false);
-    setScheduleDraft([]);
   }
 
   // ==========================================================
-  // Update schedule draft time
+  // Toggle a day on/off in the draft
   // ==========================================================
 
-  function updateScheduleTime(
-    scheduleId: string,
-    value: string
-  ) {
-    setScheduleDraft((current) =>
-      current.map((item) =>
-        item.id === scheduleId
-          ? {
-              ...item,
-              start_time: value,
-            }
-          : item
-      )
-    );
-  }
-
-  // ==========================================================
-  // Update schedule duration
-  // ==========================================================
-
-  function updateScheduleDuration(
-    scheduleId: string,
-    value: string
-  ) {
-    const duration = Number(value);
-
-    setScheduleDraft((current) =>
-      current.map((item) =>
-        item.id === scheduleId
-          ? {
-              ...item,
-              duration_minutes:
-                Number.isFinite(duration)
-                  ? duration
-                  : item.duration_minutes,
-            }
-          : item
-      )
-    );
-  }
-
-  // ==========================================================
-  // Delete schedule day
-  // ==========================================================
-
-  async function deleteScheduleDay(
-    scheduleId: string
-  ) {
-    const confirmed =
-      window.confirm(
-        'هل تريد حذف هذا اليوم من جدول الطالب؟'
-      );
-
-    if (!confirmed) return;
-
-    setError(null);
-
-    try {
-      const { error } =
-        await supabase
-          .from('student_schedule')
-          .delete()
-          .eq('id', scheduleId);
-
-      if (error) {
-        throw error;
+  function toggleDraftDay(day: number) {
+    setDraftDays((current) => {
+      if (current.includes(day)) {
+        return current.filter((d) => d !== day);
       }
+      return [...current, day].sort((a, b) => a - b);
+    });
 
-      setScheduleDraft((current) =>
-        current.filter(
-          (item) =>
-            item.id !== scheduleId
-        )
-      );
-
-      await load();
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : 'حدث خطأ أثناء حذف يوم الجدول.'
-      );
-    }
+    setDraftDayTimes((current) => {
+      if (current[day]) return current;
+      const fallback =
+        Object.values(current)[0] || '16:00';
+      return { ...current, [day]: fallback };
+    });
   }
 
   // ==========================================================
-  // Save schedule
+  // Update draft day time
+  // ==========================================================
+
+  function updateDraftDayTime(day: number, value: string) {
+    setDraftDayTimes((current) => ({
+      ...current,
+      [day]: value,
+    }));
+  }
+
+  // ==========================================================
+  // Save schedule (recurring_schedules — single source of truth)
   // ==========================================================
 
   async function saveSchedule() {
@@ -791,42 +726,68 @@ export default function StudentProfile() {
     setError(null);
 
     try {
-      for (const item of scheduleDraft) {
-        if (!item.start_time) {
+      if (draftDays.length === 0) {
+        throw new Error('اختر يومًا واحدًا على الأقل.');
+      }
+
+      for (const day of draftDays) {
+        if (!draftDayTimes[day]) {
           throw new Error(
-            `اختر وقت يوم ${DAY_NAMES_AR[item.day_of_week]}.`
+            `اختر وقت يوم ${DAY_NAMES_AR[day]}.`
           );
-        }
-
-        if (
-          !Number.isFinite(
-            item.duration_minutes
-          ) ||
-          item.duration_minutes <= 0
-        ) {
-          throw new Error(
-            `مدة الحصة في يوم ${DAY_NAMES_AR[item.day_of_week]} غير صحيحة.`
-          );
-        }
-
-        const { error } =
-          await supabase
-            .from('student_schedule')
-            .update({
-              start_time:
-                item.start_time,
-              duration_minutes:
-                item.duration_minutes,
-            })
-            .eq('id', item.id);
-
-        if (error) {
-          throw error;
         }
       }
 
+      if (
+        !Number.isFinite(draftDuration) ||
+        draftDuration <= 0
+      ) {
+        throw new Error('مدة الحصة غير صحيحة.');
+      }
+
+      const dayTimesPayload: Record<string, string> = {};
+      for (const day of draftDays) {
+        dayTimesPayload[String(day)] = draftDayTimes[day];
+      }
+
+      let result;
+
+      if (recurringSchedule) {
+        const { data, error } = await supabase.rpc(
+          'update_recurring_schedule',
+          {
+            p_recurring_schedule_id: recurringSchedule.id,
+            p_days_of_week: draftDays,
+            p_day_times: dayTimesPayload,
+            p_duration_minutes: draftDuration,
+            p_num_weeks: draftNumWeeks,
+            p_start_date: null,
+          }
+        );
+
+        if (error) throw error;
+        result = data;
+      } else {
+        const { data, error } = await supabase.rpc(
+          'create_recurring_schedule',
+          {
+            p_student_id: id,
+            p_start_date: new Date()
+              .toISOString()
+              .split('T')[0],
+            p_days_of_week: draftDays,
+            p_day_times: dayTimesPayload,
+            p_duration_minutes: draftDuration,
+            p_num_weeks: draftNumWeeks,
+          }
+        );
+
+        if (error) throw error;
+        result = data;
+      }
+
+      setSyncSummary(result ?? null);
       setEditingSchedule(false);
-      setScheduleDraft([]);
 
       await load();
     } catch (err) {
@@ -838,30 +799,6 @@ export default function StudentProfile() {
     } finally {
       setSavingSchedule(false);
     }
-  }
-
-  // ==========================================================
-  // Appointment update
-  // ==========================================================
-
-  async function handleAppointmentStatusChange(
-    appointmentId: string,
-    status: Appointment['status']
-  ) {
-    setError(null);
-
-    const { error } =
-      await supabase
-        .from('appointments')
-        .update({ status })
-        .eq('id', appointmentId);
-
-    if (error) {
-      setError(error.message);
-      return;
-    }
-
-    await load();
   }
 
   // ==========================================================
@@ -1410,19 +1347,49 @@ export default function StudentProfile() {
             الجدول والحصص
           </h2>
 
-          {!editingSchedule &&
-            schedule.length > 0 && (
-              <button
-                type="button"
-                onClick={
-                  startEditSchedule
-                }
-                className="btn-secondary"
-              >
-                تعديل الجدول
-              </button>
-            )}
+          {!editingSchedule && (
+            <button
+              type="button"
+              onClick={
+                startEditSchedule
+              }
+              className="btn-secondary"
+            >
+              {recurringSchedule
+                ? 'تعديل الجدول'
+                : 'إنشاء جدول أسبوعي'}
+            </button>
+          )}
         </div>
+
+        {/* ====================================================
+            Sync summary (after saving)
+        ===================================================== */}
+
+        {syncSummary && (
+          <div className="bg-moss-50 border border-moss-200 rounded-2xl p-4 mb-4 text-sm">
+            <p className="font-bold text-moss-700 mb-1">
+              تم تحديث الجدول
+            </p>
+            <p className="text-ink/70">
+              مواعيد جديدة: {syncSummary.created} — مواعيد
+              معدَّلة: {syncSummary.updated} — مواعيد
+              أُلغيت: {syncSummary.cancelled}
+            </p>
+            {syncSummary.conflicts.length > 0 && (
+              <div className="mt-2 text-red-700">
+                <p className="font-bold">
+                  تعارضات لم تُطبَّق:
+                </p>
+                {syncSummary.conflicts.map((c, i) => (
+                  <p key={i}>
+                    {c.date}: {c.reason}
+                  </p>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* ====================================================
             Weekly Schedule
@@ -1433,127 +1400,128 @@ export default function StudentProfile() {
             الجدول الأسبوعي
           </h3>
 
-          {schedule.length === 0 ? (
-            <div className="bg-moss-50 rounded-2xl p-4">
-              <p className="text-sm text-ink/50">
-                لا يوجد جدول أسبوعي مسجل لهذا الطالب.
-              </p>
-            </div>
-          ) : !editingSchedule ? (
-            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {schedule.map(
-                (slot) => (
-                  <div
-                    key={slot.id}
-                    className="border border-moss-100 bg-moss-50 rounded-2xl p-4"
-                  >
-                    <p className="font-extrabold text-moss-700">
-                      {
-                        DAY_NAMES_AR[
-                          slot.day_of_week
-                        ]
-                      }
-                    </p>
-
-                    <p className="text-lg font-bold text-ink mt-1">
-                      {formatTimeValue(
-                        slot.start_time
-                      )}
-                    </p>
-
-                    <p className="text-xs text-ink/50 mt-1">
-                      مدة الحصة:{' '}
-                      {
-                        slot.duration_minutes
-                      }{' '}
-                      دقيقة
-                    </p>
-                  </div>
-                )
-              )}
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {scheduleDraft.map(
-                (slot) => (
-                  <div
-                    key={slot.id}
-                    className="border border-moss-100 rounded-2xl p-4"
-                  >
-                    <div className="flex items-center justify-between gap-3 mb-3">
+          {!editingSchedule ? (
+            !recurringSchedule ||
+            recurringSchedule.days_of_week.length === 0 ? (
+              <div className="bg-moss-50 rounded-2xl p-4">
+                <p className="text-sm text-ink/50">
+                  لا يوجد جدول أسبوعي مسجل لهذا الطالب.
+                </p>
+              </div>
+            ) : (
+              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {recurringSchedule.days_of_week.map(
+                  (day) => (
+                    <div
+                      key={day}
+                      className="border border-moss-100 bg-moss-50 rounded-2xl p-4"
+                    >
                       <p className="font-extrabold text-moss-700">
-                        {
-                          DAY_NAMES_AR[
-                            slot.day_of_week
-                          ]
-                        }
+                        {DAY_NAMES_AR[day]}
                       </p>
 
-                      <button
-                        type="button"
-                        onClick={() =>
-                          deleteScheduleDay(
-                            slot.id
-                          )
-                        }
-                        disabled={
-                          savingSchedule
-                        }
-                        className="text-xs font-bold text-red-600 bg-red-50 px-3 py-2 rounded-xl"
-                      >
-                        حذف اليوم
-                      </button>
+                      <p className="text-lg font-bold text-ink mt-1">
+                        {formatTimeValue(
+                          recurringSchedule.day_times?.[
+                            String(day)
+                          ] ??
+                            `${String(
+                              recurringSchedule.start_hour
+                            ).padStart(2, '0')}:${String(
+                              recurringSchedule.start_minute
+                            ).padStart(2, '0')}`
+                        )}
+                      </p>
+
+                      <p className="text-xs text-ink/50 mt-1">
+                        مدة الحصة:{' '}
+                        {recurringSchedule.duration_minutes}{' '}
+                        دقيقة
+                      </p>
                     </div>
+                  )
+                )}
+              </div>
+            )
+          ) : (
+            <div className="space-y-4">
+              <div>
+                <p className="label mb-2">أيام الأسبوع</p>
+                <div className="grid grid-cols-4 sm:grid-cols-7 gap-2">
+                  {DAY_NAMES_AR.map((name, day) => (
+                    <button
+                      key={day}
+                      type="button"
+                      onClick={() => toggleDraftDay(day)}
+                      disabled={savingSchedule}
+                      className={`px-2 py-2 rounded-xl text-xs font-bold border-2 transition ${
+                        draftDays.includes(day)
+                          ? 'border-moss-500 bg-moss-100 text-moss-700'
+                          : 'border-ink/10 bg-white'
+                      }`}
+                    >
+                      {name}
+                    </button>
+                  ))}
+                </div>
+              </div>
 
-                    <div className="grid sm:grid-cols-2 gap-3">
-                      <div>
-                        <label className="label">
-                          وقت الحصة
-                        </label>
+              {draftDays.map((day) => (
+                <div
+                  key={day}
+                  className="border border-moss-100 rounded-2xl p-4"
+                >
+                  <p className="font-extrabold text-moss-700 mb-3">
+                    {DAY_NAMES_AR[day]}
+                  </p>
 
-                        <TimePicker12
-                          value={
-                            slot.start_time
-                          }
-                          onChange={(
-                            value
-                          ) =>
-                            updateScheduleTime(
-                              slot.id,
-                              value
-                            )
-                          }
-                        />
-                      </div>
+                  <TimePicker12
+                    value={draftDayTimes[day] || ''}
+                    onChange={(value) =>
+                      updateDraftDayTime(day, value)
+                    }
+                  />
+                </div>
+              ))}
 
-                      <div>
-                        <label className="label">
-                          مدة الحصة
-                        </label>
+              <div className="grid sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="label">
+                    مدة الحصة (دقيقة)
+                  </label>
+                  <input
+                    className="input"
+                    type="number"
+                    min="1"
+                    value={draftDuration}
+                    onChange={(e) =>
+                      setDraftDuration(
+                        Number(e.target.value)
+                      )
+                    }
+                    disabled={savingSchedule}
+                  />
+                </div>
 
-                        <input
-                          className="input"
-                          type="number"
-                          min="1"
-                          value={
-                            slot.duration_minutes
-                          }
-                          onChange={(e) =>
-                            updateScheduleDuration(
-                              slot.id,
-                              e.target
-                                .value
-                            )
-                          }
-                          disabled={
-                            savingSchedule
-                          }
-                        />
-                      </div>
-                    </div>
-                  </div>
-                )
-              )}
+                <div>
+                  <label className="label">
+                    عدد الأسابيع
+                  </label>
+                  <input
+                    className="input"
+                    type="number"
+                    min="1"
+                    max="52"
+                    value={draftNumWeeks}
+                    onChange={(e) =>
+                      setDraftNumWeeks(
+                        Number(e.target.value)
+                      )
+                    }
+                    disabled={savingSchedule}
+                  />
+                </div>
+              </div>
 
               <div className="flex gap-2 flex-wrap">
                 <button

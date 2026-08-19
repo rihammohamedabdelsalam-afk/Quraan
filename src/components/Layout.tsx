@@ -7,6 +7,7 @@ const links = [
   { to: '/students', label: 'الطلاب', icon: '👨‍🎓' },
   { to: '/wallet', label: 'المحفظة', icon: '💰' },
   { to: '/outstanding', label: 'الحصص المستحقة', icon: '📋' },
+  { to: '/appointments', label: 'المواعيد', icon: '🗓️' },
   { to: '/availability', label: 'مواعيد عملي', icon: '📅' },
 ];
 

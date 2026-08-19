@@ -143,36 +143,14 @@ export function generateSchedulePreview(
 }
 
 /**
- * Create multiple appointments from a preview.
+ * NOTE: appointment generation from a recurring schedule now goes through
+ * the create_recurring_schedule() / sync_recurring_schedule() RPCs (see
+ * migration 20260818130000_scheduling_source_of_truth.sql), which handle
+ * conflict detection and idempotency server-side. There is intentionally no
+ * client-side "create appointments from a preview" helper anymore — a
+ * second, divergent generation path is exactly what the scheduling
+ * architecture decision ruled out.
  */
-export async function createAppointmentsFromPreview(
-  supabase: any,
-  studentId: string,
-  recurringScheduleId: string,
-  previews: SchedulePreview[]
-): Promise<void> {
-  if (previews.length === 0) {
-    return;
-  }
-
-  const appointments = previews.map((preview) => ({
-    student_id: studentId,
-    recurring_schedule_id: recurringScheduleId,
-    date: preview.date,
-    day_of_week: preview.dayOfWeek,
-    start_hour: preview.hour,
-    start_minute: preview.minute,
-    status: 'scheduled',
-  }));
-
-  const { error } = await supabase
-    .from('appointments')
-    .insert(appointments);
-
-  if (error) {
-    throw error;
-  }
-}
 
 /**
  * Check for appointment conflicts on a specific date and time.
@@ -462,6 +440,35 @@ export async function getAvailableSlots(
     throw error;
   }
 
+  const dayStart = new Date(`${date}T00:00:00`);
+  const dayEnd = new Date(`${date}T23:59:59`);
+
+  const {
+    data: blockedRanges,
+    error: blockedError,
+  } = await supabase
+    .from('blocked_time')
+    .select('start_at, end_at')
+    .eq('teacher_id', teacherId)
+    .lt('start_at', dayEnd.toISOString())
+    .gt('end_at', dayStart.toISOString());
+
+  if (blockedError) {
+    throw blockedError;
+  }
+
+  const blockedSlots = (blockedRanges || []).map(
+    (b: { start_at: string; end_at: string }) => {
+      const start = new Date(b.start_at);
+      const end = new Date(b.end_at);
+      return {
+        startMinutes:
+          start.getHours() * 60 + start.getMinutes(),
+        endMinutes: end.getHours() * 60 + end.getMinutes(),
+      };
+    }
+  );
+
   const bookedSlots = (
     appointments || []
   )
@@ -500,7 +507,15 @@ export async function getAvailableSlots(
             )
         );
 
-      if (!hasConflict) {
+      const slotStart = hour * 60 + minute;
+      const slotEnd = slotStart + durationMinutes;
+
+      const isBlocked = blockedSlots.some(
+        (b: { startMinutes: number; endMinutes: number }) =>
+          slotStart < b.endMinutes && b.startMinutes < slotEnd
+      );
+
+      if (!hasConflict && !isBlocked) {
         slots.push({
           hour,
           minute,
@@ -557,41 +572,35 @@ export async function rescheduleAppointment(
     );
   }
 
-  const newDayOfWeek =
-    newDateObj.getDay();
+  newDateObj.setHours(newHour, newMinute, 0, 0);
 
-  const {
-    error: updateError,
-  } = await supabase
-    .from('appointments')
-    .update({
-      date: newDate,
-      day_of_week: newDayOfWeek,
-      start_hour: newHour,
-      start_minute: newMinute,
-      original_date:
-        current.original_date ||
-        current.date,
-      original_start_hour:
-        current.original_start_hour !==
-        null
-          ? current.original_start_hour
-          : current.start_hour,
-      original_start_minute:
-        current.original_start_minute !==
-        null
-          ? current.original_start_minute
-          : current.start_minute,
-      reschedule_reason:
-        reason || null,
-      status: 'rescheduled',
-      updated_at:
-        new Date().toISOString(),
-    })
-    .eq('id', appointmentId);
+  const durationMs =
+    current.end_at && current.start_at
+      ? new Date(current.end_at).getTime() -
+        new Date(current.start_at).getTime()
+      : 60 * 60000;
 
-  if (updateError) {
-    throw updateError;
+  const newEndAt = new Date(
+    newDateObj.getTime() + durationMs
+  );
+
+  // Goes through reschedule_appointment(): it creates a new appointment,
+  // closes this one as 'rescheduled', and records the move in
+  // appointment_reschedule_history + audit_log — a raw UPDATE here would
+  // silently skip all of that (and would also violate the appointments
+  // status CHECK constraint before it was widened for 'rescheduled').
+  const { error: rpcError } = await supabase.rpc(
+    'reschedule_appointment',
+    {
+      p_appointment_id: appointmentId,
+      p_new_start_at: newDateObj.toISOString(),
+      p_new_end_at: newEndAt.toISOString(),
+      p_reason: reason || null,
+    }
+  );
+
+  if (rpcError) {
+    throw rpcError;
   }
 }
 

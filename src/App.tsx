@@ -8,6 +8,7 @@ import StudentProfile from './pages/StudentProfile';
 import Wallet from './pages/Wallet';
 import OutstandingLessons from './pages/OutstandingLessons';
 import Availability from './pages/Availability';
+import Appointments from './pages/Appointments';
 
 export default function App() {
   return (
@@ -26,6 +27,7 @@ export default function App() {
         <Route path="students/:id" element={<StudentProfile />} />
         <Route path="wallet" element={<Wallet />} />
         <Route path="outstanding" element={<OutstandingLessons />} />
+        <Route path="appointments" element={<Appointments />} />
         <Route path="availability" element={<Availability />} />
       </Route>
     </Routes>

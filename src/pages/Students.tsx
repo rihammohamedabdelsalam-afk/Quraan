@@ -484,36 +484,6 @@ function AddStudentForm({
       }
 
       // ==========================================================
-      // 1. إنشاء الطالب + الدورة
-      // ==========================================================
-
-      const {
-        data: studentId,
-        error: rpcError,
-      } = await supabase.rpc(
-        'fn_create_student_with_cycle',
-        {
-          p_name: name.trim(),
-          p_age: ageNum,
-          p_phone: phone.trim() || null,
-          p_notes: null,
-          p_total_lessons: totalLessons,
-          p_collection_amount: amount,
-          p_initial_progress: initialProgress,
-        }
-      );
-
-      if (rpcError) {
-        throw rpcError;
-      }
-
-      if (!studentId) {
-        throw new Error(
-          'تم إنشاء الطالب لكن لم يتم استلام رقم الطالب من قاعدة البيانات.'
-        );
-      }
-
-      // ==========================================================
       // 2. تحويل أوقات الأيام إلى JSON
       // ==========================================================
 
@@ -551,33 +521,47 @@ function AddStudentForm({
       const firstMinute =
         Number(firstMinuteString);
 
-      // ==========================================================
-      // 4. إنشاء الجدول المتكرر
-      // ==========================================================
-
       const today = new Date()
         .toISOString()
         .slice(0, 10);
 
-      const {
-        error: scheduleError,
-      } = await supabase
-        .from('recurring_schedules')
-        .insert({
-          student_id: studentId,
-          teacher_id: user.id,
-          start_date: today,
-          days_of_week: selectedDays,
-          start_hour: firstHour,
-          start_minute: firstMinute,
-          num_weeks: numWeeks,
-          duration_minutes: duration,
-          day_times: dayTimesJson,
-          status: 'active',
-        });
+      // ==========================================================
+      // 1+4. إنشاء الطالب + الدورة + الجدول المتكرر في عملية واحدة
+      // ذرية (نفس الـtransaction على مستوى قاعدة البيانات) بدلًا من
+      // نداءين منفصلين قد ينجح أحدهما ويفشل الآخر.
+      // ==========================================================
 
-      if (scheduleError) {
-        throw scheduleError;
+      const {
+        data: studentId,
+        error: rpcError,
+      } = await supabase.rpc(
+        'fn_create_student_with_cycle',
+        {
+          p_name: name.trim(),
+          p_age: ageNum,
+          p_phone: phone.trim() || null,
+          p_notes: null,
+          p_total_lessons: totalLessons,
+          p_collection_amount: amount,
+          p_initial_progress: initialProgress,
+          p_days_of_week: selectedDays,
+          p_start_date: today,
+          p_start_hour: firstHour,
+          p_start_minute: firstMinute,
+          p_num_weeks: numWeeks,
+          p_duration_minutes: duration,
+          p_day_times: dayTimesJson,
+        }
+      );
+
+      if (rpcError) {
+        throw rpcError;
+      }
+
+      if (!studentId) {
+        throw new Error(
+          'تم إنشاء الطالب لكن لم يتم استلام رقم الطالب من قاعدة البيانات.'
+        );
       }
 
       // ==========================================================

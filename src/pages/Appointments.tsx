@@ -2,7 +2,7 @@ import { useEffect, useState, FormEvent } from 'react';
 import { supabase } from '../lib/supabase';
 import { Appointment, Student, DAY_NAMES_AR } from '../lib/types';
 import RecurringScheduleForm from '../components/RecurringScheduleForm';
-import { formatTime, convertTo12Hour } from '../lib/scheduling';
+import { formatTime, convertTo12Hour, rescheduleAppointment } from '../lib/scheduling';
 
 export default function Appointments() {
   const [appointments, setAppointments] = useState<(Appointment & { students?: Student })[]>([]);
@@ -60,10 +60,16 @@ export default function Appointments() {
 
   async function handleStatusChange(id: string, newStatus: Appointment['status']) {
     try {
-      await supabase
-        .from('appointments')
-        .update({ status: newStatus })
-        .eq('id', id);
+      // Goes through complete_appointment()/cancel_appointment() rather than
+      // a raw status update, so progress/collection/wallet logic (for
+      // completion) and the audit trail (for cancellation) actually run.
+      const rpcName =
+        newStatus === 'completed' ? 'complete_appointment' : 'cancel_appointment';
+      const { error } = await supabase.rpc(rpcName, {
+        p_appointment_id: id,
+        ...(rpcName === 'cancel_appointment' ? { p_reason: null } : {}),
+      });
+      if (error) throw error;
       loadData();
     } catch (err) {
       setError((err as Error).message);
@@ -72,13 +78,20 @@ export default function Appointments() {
 
   async function handleSaveEdit(id: string) {
     try {
-      await supabase
-        .from('appointments')
-        .update({
-          start_hour: editHour,
-          start_minute: editMinute,
-        })
-        .eq('id', id);
+      const current = appointments.find((a) => a.id === id);
+      if (!current) throw new Error('لم يتم العثور على الموعد.');
+
+      // Goes through reschedule_appointment() (creates a new appointment,
+      // closes this one, marks the new one as manually overridden) rather
+      // than a raw in-place time edit, so it can never be silently
+      // overwritten later by a recurring-schedule sync.
+      await rescheduleAppointment(
+        supabase,
+        id,
+        current.date,
+        editHour,
+        editMinute
+      );
       setEditingId(null);
       loadData();
     } catch (err) {

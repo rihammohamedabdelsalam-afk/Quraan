@@ -7,7 +7,7 @@ import {
   Lesson,
   LessonCycle,
   Student,
-  StudentSchedule,
+  RecurringSchedule,
 } from '../lib/types';
 
 
@@ -49,7 +49,7 @@ export default function Dashboard() {
     useState<LessonCycle[]>([]);
 
   const [schedules, setSchedules] =
-    useState<StudentSchedule[]>([]);
+    useState<RecurringSchedule[]>([]);
 
   const [futureLessons, setFutureLessons] =
     useState<Lesson[]>([]);
@@ -139,14 +139,9 @@ export default function Dashboard() {
         // ------------------------------------------------------
 
         supabase
-          .from('student_schedule')
+          .from('recurring_schedules')
           .select('*')
-          .order('day_of_week', {
-            ascending: true,
-          })
-          .order('start_time', {
-            ascending: true,
-          }),
+          .eq('status', 'active'),
 
         // ------------------------------------------------------
         // Selected Day Lessons
@@ -1370,26 +1365,18 @@ function PostponeModal({
 
 function getAvailableDates(
   lesson: TodayLesson,
-  schedules: StudentSchedule[],
+  schedules: RecurringSchedule[],
   futureLessons: Lesson[]
 ): AvailableDate[] {
-  const studentSchedule =
-    schedules.filter(
-      (item) =>
-        item.student_id ===
-        lesson.student_id
-    );
+  const studentSchedule = schedules.find(
+    (item) => item.student_id === lesson.student_id
+  );
 
-
-  if (
-    studentSchedule.length === 0
-  ) {
+  if (!studentSchedule) {
     return [];
   }
 
-
   const result: AvailableDate[] = [];
-
 
   for (
     let offset = 1;
@@ -1404,20 +1391,23 @@ function getAvailableDates(
     const dayOfWeek =
       getDayOfWeek(date);
 
-
-    const daySlots =
-      studentSchedule.filter(
-        (slot) =>
-          slot.day_of_week ===
-          dayOfWeek
-      );
-
-
     if (
-      daySlots.length === 0
+      !studentSchedule.days_of_week.includes(
+        dayOfWeek
+      )
     ) {
       continue;
     }
+
+    const startTime =
+      studentSchedule.day_times?.[
+        String(dayOfWeek)
+      ] ??
+      `${String(
+        studentSchedule.start_hour
+      ).padStart(2, '0')}:${String(
+        studentSchedule.start_minute
+      ).padStart(2, '0')}`;
 
 
     const hasConflict =
@@ -1458,16 +1448,11 @@ function getAvailableDates(
     }
 
 
-    for (
-      const slot of daySlots
-    ) {
-      result.push({
-        date,
-        dayOfWeek,
-        startTime:
-          slot.start_time,
-      });
-    }
+    result.push({
+      date,
+      dayOfWeek,
+      startTime,
+    });
 
 
     if (

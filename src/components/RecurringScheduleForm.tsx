@@ -3,7 +3,6 @@ import { supabase } from '../lib/supabase';
 import { DAY_NAMES_AR } from '../lib/types';
 import TimePicker12 from './TimePicker12';
 import {
-  createAppointmentsFromPreview,
   generateSchedulePreview,
   SchedulePreview,
   WEEK_OPTIONS,
@@ -305,60 +304,37 @@ export default function RecurringScheduleForm({
       }
 
       /**
-       * Create recurring schedule.
+       * Create the recurring schedule and generate its appointments in one
+       * atomic call — going through create_recurring_schedule() instead of
+       * a client-side insert + createAppointmentsFromPreview() keeps this
+       * the same single, idempotent generation path used everywhere else
+       * (StudentProfile's schedule editor included), instead of a fourth
+       * competing way to create appointments.
        */
-      const {
-        data: schedule,
-        error:
-          scheduleError,
-      } = await supabase
-        .from(
-          'recurring_schedules'
-        )
-        .insert({
-          student_id:
-            studentId,
-          teacher_id:
-            user.id,
-          start_date:
-            startDate,
-          days_of_week:
-            selectedDays,
-          start_hour:
-            firstParsed.hour,
-          start_minute:
-            firstParsed.minute,
-          num_weeks:
-            actualNumWeeks,
-          duration_minutes:
-            duration,
-          day_times:
-            dayTimesJson,
-          status:
-            'active',
-        })
-        .select()
-        .single();
+      const { data: syncResult, error: rpcError } =
+        await supabase.rpc('create_recurring_schedule', {
+          p_student_id: studentId,
+          p_start_date: startDate,
+          p_days_of_week: selectedDays,
+          p_day_times: dayTimesJson,
+          p_duration_minutes: duration,
+          p_num_weeks: actualNumWeeks,
+        });
 
-      if (scheduleError) {
-        throw scheduleError;
+      if (rpcError) {
+        throw rpcError;
       }
 
-      if (!schedule) {
-        throw new Error(
-          'تم إنشاء الجدول لكن لم يتم استلام بياناته.'
+      if (
+        syncResult?.conflicts &&
+        syncResult.conflicts.length > 0
+      ) {
+        setError(
+          `تم إنشاء الجدول، لكن بعض المواعيد تعارضت مع مواعيد أخرى: ${syncResult.conflicts
+            .map((c: { date: string }) => c.date)
+            .join('، ')}`
         );
       }
-
-      /**
-       * Create appointments.
-       */
-      await createAppointmentsFromPreview(
-        supabase,
-        studentId,
-        schedule.id,
-        preview
-      );
 
       /**
        * Reset form.

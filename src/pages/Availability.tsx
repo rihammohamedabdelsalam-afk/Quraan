@@ -8,36 +8,51 @@ type AvailabilitySlot = {
   day_of_week: number;
   start_time: string;
   end_time: string;
-  status: string;
 };
 
 type Blocked = {
   id: string;
-  date: string;
-  start_time: string;
-  end_time: string;
+  start_at: string;
+  end_at: string;
   reason: string | null;
 };
+
+function toLocalDateStr(iso: string): string {
+  return new Date(iso).toISOString().slice(0, 10);
+}
+
+function toLocalTimeStr(iso: string): string {
+  const d = new Date(iso);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(
+    d.getMinutes()
+  ).padStart(2, '0')}`;
+}
 
 export default function Availability() {
   const [slots, setSlots] = useState<AvailabilitySlot[]>([]);
   const [blocked, setBlocked] = useState<Blocked[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   async function load() {
     setLoading(true);
+    setError(null);
 
-    const [{ data: s }, { data: b }] = await Promise.all([
-      supabase
-        .from('teacher_availability')
-        .select('*')
-        .order('day_of_week'),
+    const [{ data: s, error: sErr }, { data: b, error: bErr }] =
+      await Promise.all([
+        supabase
+          .from('teacher_availability')
+          .select('*')
+          .order('day_of_week'),
 
-      supabase
-        .from('blocked_time')
-        .select('*')
-        .order('date'),
-    ]);
+        supabase
+          .from('blocked_time')
+          .select('*')
+          .order('start_at'),
+      ]);
+
+    if (sErr) setError(sErr.message);
+    if (bErr) setError(bErr.message);
 
     setSlots(s ?? []);
     setBlocked(b ?? []);
@@ -76,6 +91,12 @@ export default function Availability() {
         مواعيد عملي
       </h1>
 
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-sm text-red-700">
+          {error}
+        </div>
+      )}
+
       {/* أيام وساعات العمل */}
       <div className="card p-6">
         <h2 className="font-extrabold text-moss-700 mb-3">
@@ -109,7 +130,7 @@ export default function Availability() {
           )}
         </div>
 
-        <AvailabilityForm onDone={load} />
+        <AvailabilityForm onDone={load} onError={setError} />
       </div>
 
       {/* أوقات محجوبة */}
@@ -117,6 +138,10 @@ export default function Availability() {
         <h2 className="font-extrabold text-moss-700 mb-3">
           أوقات محجوبة
         </h2>
+        <p className="text-xs text-ink/50 mb-3">
+          لن يتم اقتراح هذه الأوقات عند تأجيل حصة أو مزامنة الجدول
+          الأسبوعي.
+        </p>
 
         <div className="space-y-2 mb-4">
           {blocked.map((b) => (
@@ -125,7 +150,9 @@ export default function Availability() {
               className="flex justify-between items-center border-b border-moss-50 py-2 text-sm"
             >
               <span>
-                {b.date} — {b.start_time} إلى {b.end_time}{' '}
+                {toLocalDateStr(b.start_at)} —{' '}
+                {toLocalTimeStr(b.start_at)} إلى{' '}
+                {toLocalTimeStr(b.end_at)}{' '}
                 {b.reason ? `(${b.reason})` : ''}
               </span>
 
@@ -145,7 +172,7 @@ export default function Availability() {
           )}
         </div>
 
-        <BlockedTimeForm onDone={load} />
+        <BlockedTimeForm onDone={load} onError={setError} />
       </div>
     </div>
   );
@@ -155,7 +182,13 @@ export default function Availability() {
    Availability Form
 ========================= */
 
-function AvailabilityForm({ onDone }: { onDone: () => void }) {
+function AvailabilityForm({
+  onDone,
+  onError,
+}: {
+  onDone: () => void;
+  onError: (message: string) => void;
+}) {
   const [day, setDay] = useState(0);
   const [start, setStart] = useState('16:00');
   const [end, setEnd] = useState('19:00');
@@ -166,16 +199,36 @@ function AvailabilityForm({ onDone }: { onDone: () => void }) {
 
     setSaving(true);
 
-    await supabase
-      .from('teacher_availability')
-      .insert({
-        day_of_week: day,
-        start_time: start,
-        end_time: end,
-      });
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
 
-    setSaving(false);
-    onDone();
+      if (!user) {
+        throw new Error('يجب تسجيل الدخول أولاً.');
+      }
+
+      const { error } = await supabase
+        .from('teacher_availability')
+        .insert({
+          teacher_id: user.id,
+          day_of_week: day,
+          start_time: start,
+          end_time: end,
+        });
+
+      if (error) throw error;
+
+      onDone();
+    } catch (err) {
+      onError(
+        err instanceof Error
+          ? err.message
+          : 'حدث خطأ أثناء إضافة الموعد.'
+      );
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -232,7 +285,13 @@ function AvailabilityForm({ onDone }: { onDone: () => void }) {
    Blocked Time Form
 ========================= */
 
-function BlockedTimeForm({ onDone }: { onDone: () => void }) {
+function BlockedTimeForm({
+  onDone,
+  onError,
+}: {
+  onDone: () => void;
+  onError: (message: string) => void;
+}) {
   const [date, setDate] = useState('');
   const [start, setStart] = useState('17:00');
   const [end, setEnd] = useState('18:00');
@@ -246,20 +305,55 @@ function BlockedTimeForm({ onDone }: { onDone: () => void }) {
 
     setSaving(true);
 
-    await supabase
-      .from('blocked_time')
-      .insert({
-        date,
-        start_time: start,
-        end_time: end,
-        reason: reason || null,
-      });
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
 
-    setSaving(false);
-    setDate('');
-    setReason('');
+      if (!user) {
+        throw new Error('يجب تسجيل الدخول أولاً.');
+      }
 
-    onDone();
+      const [startHour, startMinute] = start
+        .split(':')
+        .map(Number);
+      const [endHour, endMinute] = end
+        .split(':')
+        .map(Number);
+
+      const startAt = new Date(`${date}T00:00:00`);
+      startAt.setHours(startHour, startMinute, 0, 0);
+
+      const endAt = new Date(`${date}T00:00:00`);
+      endAt.setHours(endHour, endMinute, 0, 0);
+
+      if (endAt <= startAt) {
+        throw new Error('وقت النهاية يجب أن يكون بعد وقت البداية.');
+      }
+
+      const { error } = await supabase
+        .from('blocked_time')
+        .insert({
+          teacher_id: user.id,
+          start_at: startAt.toISOString(),
+          end_at: endAt.toISOString(),
+          reason: reason || null,
+        });
+
+      if (error) throw error;
+
+      setDate('');
+      setReason('');
+      onDone();
+    } catch (err) {
+      onError(
+        err instanceof Error
+          ? err.message
+          : 'حدث خطأ أثناء حجب الوقت.'
+      );
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (

@@ -52,16 +52,33 @@ export default function AppointmentCard({
     }
   };
 
-  async function handleStatusChange(newStatus: Appointment['status']) {
+  async function handleComplete() {
     setLoading(true);
     try {
-      await supabase
-        .from('appointments')
-        .update({ status: newStatus, updated_at: new Date().toISOString() })
-        .eq('id', appointment.id);
+      const { error } = await supabase.rpc('complete_appointment', {
+        p_appointment_id: appointment.id,
+      });
+      if (error) throw error;
       onUpdate();
     } catch (error) {
-      console.error('Error updating status:', error);
+      console.error('Error completing appointment:', error);
+    } finally {
+      setLoading(false);
+      setShowMenu(false);
+    }
+  }
+
+  async function handleCancel() {
+    setLoading(true);
+    try {
+      const { error } = await supabase.rpc('cancel_appointment', {
+        p_appointment_id: appointment.id,
+        p_reason: null,
+      });
+      if (error) throw error;
+      onUpdate();
+    } catch (error) {
+      console.error('Error cancelling appointment:', error);
     } finally {
       setLoading(false);
       setShowMenu(false);
@@ -164,7 +181,7 @@ export default function AppointmentCard({
                   <>
                     <button
                       onClick={() => {
-                        handleStatusChange('completed');
+                        handleComplete();
                       }}
                       className="block w-full text-right px-4 py-2 text-sm hover:bg-green-50 transition border-t border-ink/10"
                       disabled={loading}
@@ -183,7 +200,7 @@ export default function AppointmentCard({
                     </button>
                     <button
                       onClick={() => {
-                        handleStatusChange('cancelled');
+                        handleCancel();
                       }}
                       className="block w-full text-right px-4 py-2 text-sm hover:bg-red-50 transition border-t border-ink/10"
                       disabled={loading}
